@@ -1,0 +1,5 @@
+# Added by code-review-graph
+.code-review-graph/
+
+# Ignore the assembly directory
+assembly/

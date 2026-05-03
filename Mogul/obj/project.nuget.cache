@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "TqNLQwVdQC3/mH7YMZ9OCvX/90PxXdjQWyvMaroGwt3lHL3/7sjXqLvGro+bWL2o53ibs0T/m5PAnWBiPcRA5Q==",
+  "success": true,
+  "projectFilePath": "/home/imetto/projects/mods/Mogul/Mogul/Mogul.csproj",
+  "expectedPackageFiles": [
+    "/home/imetto/.nuget/packages/microsoft.netcore.app.ref/6.0.36/microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
+    "/home/imetto/.nuget/packages/microsoft.aspnetcore.app.ref/6.0.36/microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512"
+  ],
+  "logs": []
+}

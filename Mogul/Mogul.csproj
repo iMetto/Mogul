@@ -1,0 +1,103 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>Mogul</AssemblyName>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <!-- Paths to the game's mod loader -->
+    <MLRoot>/mnt/c/Users/ahmed/AppData/Roaming/Thunderstore Mod Manager/DataFolder/ScheduleI/profiles/Schedule 1/MelonLoader</MLRoot>
+    <MLNet6>$(MLRoot)/net6</MLNet6>
+    <GameDlls>$(MLRoot)/Il2CppAssemblies</GameDlls>
+  </PropertyGroup>
+
+  <!-- Reference the installed S1API — do NOT embed its source -->
+  <PropertyGroup>
+    <ModsRoot>/mnt/c/Users/ahmed/AppData/Roaming/Thunderstore Mod Manager/DataFolder/ScheduleI/profiles/Schedule 1/Mods</ModsRoot>
+    <UserLibsRoot>/mnt/c/Users/ahmed/AppData/Roaming/Thunderstore Mod Manager/DataFolder/ScheduleI/profiles/Schedule 1/UserLibs</UserLibsRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="S1API">
+      <HintPath>$(ModsRoot)/ifBars-S1API_Forked/Mods/S1API.Il2Cpp.MelonLoader.dll</HintPath>
+    </Reference>
+    <Reference Include="SteamNetworkLib">
+      <HintPath>$(ModsRoot)/ifBars-SteamNetworkLib_Il2Cpp/UserLibs/SteamNetworkLib-IL2Cpp.dll</HintPath>
+    </Reference>
+    <Reference Include="S1MAPI">
+      <HintPath>$(ModsRoot)/ifBars-S1MAPI/UserLibs/S1MAPI_Il2Cpp.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- MelonLoader framework -->
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(MLNet6)/Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="MelonLoader">
+      <HintPath>$(MLNet6)/MelonLoader.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(MLNet6)/0Harmony.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(MLNet6)/Il2CppInterop.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppInterop.Common">
+      <HintPath>$(MLNet6)/Il2CppInterop.Common.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Game assemblies (IL2CPP-generated stubs) -->
+  <ItemGroup>
+    <Reference Include="Il2Cppcom.rlabrecque.steamworks.net">
+      <HintPath>$(GameDlls)/Il2Cppcom.rlabrecque.steamworks.net.dll</HintPath>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(GameDlls)/Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>$(GameDlls)/Assembly-CSharp-firstpass.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppScheduleOne.Core">
+      <HintPath>$(GameDlls)/Il2CppScheduleOne.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2CppFishNet.Runtime">
+      <HintPath>$(GameDlls)/Il2CppFishNet.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(GameDlls)/Il2Cppmscorlib.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(GameDlls)/Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameDlls)/UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(GameDlls)/UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GameDlls)/UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(GameDlls)/UnityEngine.UIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AIModule">
+      <HintPath>$(GameDlls)/UnityEngine.AIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameDlls)/UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameDlls)/UnityEngine.InputLegacyModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(GameDlls)/UnityEngine.ImageConversionModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(GameDlls)/UnityEngine.JSONSerializeModule.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

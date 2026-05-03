@@ -1,0 +1,69 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mogul", "Mogul\Mogul.csproj", "{247F8C81-64D5-C5FA-6C00-ABBB4A583E06}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "assembly", "assembly", "{23BABBEC-DD0F-CCFB-FF50-57D632151156}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "S1API.Il2Cpp.MelonLoader", "S1API.Il2Cpp.MelonLoader", "{7926DE63-90C5-78B0-476B-E26BBBB630FD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "S1API", "assembly\S1API.Il2Cpp.MelonLoader\S1API.csproj", "{6106E4FB-C722-13A3-CD32-666E89C65D44}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "S1MAPI_Il2cpp", "assembly\S1MAPI_Il2Cpp\S1MAPI_Il2cpp.csproj", "{E420D046-DAA0-3544-D1F4-DC0A2256157C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Il2CppScheduleOne.Core", "assembly\Il2CppScheduleOne.Core\Il2CppScheduleOne.Core.csproj", "{4748FEAE-669E-1010-AC3A-11FB14E2E878}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp", "assembly\Assembly-CSharp\Assembly-CSharp.csproj", "{30765E2A-0904-B056-8026-3DA5CF6CF3EE}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SteamNetworkLib-IL2Cpp", "SteamNetworkLib-IL2Cpp", "{51581D0F-12B9-02B5-F568-503B1C9ADBC6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SteamNetworkLib", "assembly\SteamNetworkLib-IL2Cpp\SteamNetworkLib.csproj", "{50E187C7-4892-7D16-6AF4-377C08DDE1C3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{247F8C81-64D5-C5FA-6C00-ABBB4A583E06}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{247F8C81-64D5-C5FA-6C00-ABBB4A583E06}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{247F8C81-64D5-C5FA-6C00-ABBB4A583E06}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{247F8C81-64D5-C5FA-6C00-ABBB4A583E06}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6106E4FB-C722-13A3-CD32-666E89C65D44}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6106E4FB-C722-13A3-CD32-666E89C65D44}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6106E4FB-C722-13A3-CD32-666E89C65D44}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6106E4FB-C722-13A3-CD32-666E89C65D44}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E420D046-DAA0-3544-D1F4-DC0A2256157C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E420D046-DAA0-3544-D1F4-DC0A2256157C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E420D046-DAA0-3544-D1F4-DC0A2256157C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E420D046-DAA0-3544-D1F4-DC0A2256157C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4748FEAE-669E-1010-AC3A-11FB14E2E878}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4748FEAE-669E-1010-AC3A-11FB14E2E878}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4748FEAE-669E-1010-AC3A-11FB14E2E878}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4748FEAE-669E-1010-AC3A-11FB14E2E878}.Release|Any CPU.Build.0 = Release|Any CPU
+		{30765E2A-0904-B056-8026-3DA5CF6CF3EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{30765E2A-0904-B056-8026-3DA5CF6CF3EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{30765E2A-0904-B056-8026-3DA5CF6CF3EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{30765E2A-0904-B056-8026-3DA5CF6CF3EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{50E187C7-4892-7D16-6AF4-377C08DDE1C3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50E187C7-4892-7D16-6AF4-377C08DDE1C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50E187C7-4892-7D16-6AF4-377C08DDE1C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50E187C7-4892-7D16-6AF4-377C08DDE1C3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{7926DE63-90C5-78B0-476B-E26BBBB630FD} = {23BABBEC-DD0F-CCFB-FF50-57D632151156}
+		{6106E4FB-C722-13A3-CD32-666E89C65D44} = {7926DE63-90C5-78B0-476B-E26BBBB630FD}
+		{E420D046-DAA0-3544-D1F4-DC0A2256157C} = {23BABBEC-DD0F-CCFB-FF50-57D632151156}
+		{4748FEAE-669E-1010-AC3A-11FB14E2E878} = {23BABBEC-DD0F-CCFB-FF50-57D632151156}
+		{30765E2A-0904-B056-8026-3DA5CF6CF3EE} = {23BABBEC-DD0F-CCFB-FF50-57D632151156}
+		{51581D0F-12B9-02B5-F568-503B1C9ADBC6} = {23BABBEC-DD0F-CCFB-FF50-57D632151156}
+		{50E187C7-4892-7D16-6AF4-377C08DDE1C3} = {51581D0F-12B9-02B5-F568-503B1C9ADBC6}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {479AEB4E-61FA-464A-8A6E-41C2BF30AD80}
+	EndGlobalSection
+EndGlobal

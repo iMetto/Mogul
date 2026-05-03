@@ -1,0 +1,10 @@
+{
+  "name": "Mogul",
+  "version_number": "0.1.0",
+  "website_url": "",
+  "description": "Mogul business management mod for Schedule 1",
+  "dependencies": [
+    "LavaGang-MelonLoader-0.7.2",
+    "ifBars-S1API_Forked-3.0.22"
+  ]
+}

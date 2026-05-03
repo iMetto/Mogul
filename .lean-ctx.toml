@@ -1,0 +1,3 @@
+# lean-ctx per-project config — Mogul
+[project]
+root = "/home/imetto/projects/mods/Mogul"
