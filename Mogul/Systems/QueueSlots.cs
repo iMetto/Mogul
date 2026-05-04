@@ -85,12 +85,16 @@ internal static class QueueSlots
         return results;
     }
 
-    // Auto-computes exterior positions: 1.5m outside the door, then along the wall.
+    // Exterior queue layout. The line hugs the wall (small perpendicular gap) but steps
+    // well clear of the door's exit corridor laterally so leaving NPCs aren't blocked.
+    private const float DoorGap           = 0.8f; // perpendicular distance from the wall
+    private const float LineLateralOffset = 3.0f; // offset along the wall before slot 0
+
     private static List<QueueSlot> BuildExterior(MogulLocation location)
     {
         var list    = new List<QueueSlot>(MaxExterior);
-        var origin  = DoorExitWorld(location);      // world-space start, just outside door
-        var wallDir = DoorWallDir(location.Door);   // direction to extend along the wall
+        var wallDir = DoorWallDir(location.Door);
+        var origin  = DoorExitWorld(location) + wallDir * LineLateralOffset;
 
         for (int i = 0; i < MaxExterior; i++)
         {
@@ -105,18 +109,17 @@ internal static class QueueSlots
         return list;
     }
 
-    // World-space point 1.5m outside the door centre.
+    // World-space point DoorGap meters outside the door centre.
     private static Vector3 DoorExitWorld(MogulLocation location)
     {
         var c = location.WorldPosition;
         var s = location.RoomSize;
-        const float gap = 1.5f;
         return location.Door switch
         {
-            WallSide.East  => c + new Vector3(s.x + gap, 0f, s.z / 2f),
-            WallSide.West  => c + new Vector3(-gap,      0f, s.z / 2f),
-            WallSide.North => c + new Vector3(s.x / 2f,  0f, s.z + gap),
-            WallSide.South => c + new Vector3(s.x / 2f,  0f, -gap),
+            WallSide.East  => c + new Vector3(s.x + DoorGap, 0f, s.z / 2f),
+            WallSide.West  => c + new Vector3(-DoorGap,      0f, s.z / 2f),
+            WallSide.North => c + new Vector3(s.x / 2f,      0f, s.z + DoorGap),
+            WallSide.South => c + new Vector3(s.x / 2f,      0f, -DoorGap),
             _              => c,
         };
     }

@@ -97,3 +97,4 @@
 /home/imetto/projects/mods/Mogul/Mogul/bin/Debug/net6.0/Newtonsoft.Json.dll
 /home/imetto/projects/mods/Mogul/Mogul/bin/Debug/net6.0/SteamNetworkLib-IL2Cpp.dll
 /home/imetto/projects/mods/Mogul/Mogul/bin/Debug/net6.0/S1MAPI_Il2Cpp.dll
+/home/imetto/projects/mods/Mogul/Mogul/obj/Debug/net6.0/Mogul.sourcelink.json

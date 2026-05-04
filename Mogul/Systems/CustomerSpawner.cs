@@ -9,6 +9,8 @@ using Il2CppScheduleOne.NPCs.Behaviour;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.AI;
+using LayerList = Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.AvatarFramework.AvatarSettings.LayerSetting>;
+using AccessoryList = Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.AvatarFramework.AvatarSettings.AccessorySetting>;
 
 namespace Mogul.Systems;
 
@@ -45,18 +47,26 @@ public static class CustomerSpawner
     public static void Despawn(NPC npc)
     {
         try { NPCManager.NPCRegistry?.Remove(npc); } catch { }
+
+        var go = npc?.gameObject;
+        if (go == null) return;
+
+        // Network despawn first (host-authoritative). Whether or not this destroys the
+        // object varies — it sometimes only marks it for cleanup. We follow up with an
+        // explicit Destroy so the GameObject can never linger in the world.
         try
         {
-            var netObj = npc.gameObject?.GetComponent<NetworkObject>();
+            var netObj = go.GetComponent<NetworkObject>();
             if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
                 InstanceFinder.ServerManager.Despawn(netObj);
-            else if (npc.gameObject != null)
-                UnityEngine.Object.Destroy(npc.gameObject);
         }
         catch (Exception ex)
         {
-            MelonLogger.Warning("[Mogul] Despawn error (safe to ignore): " + ex.Message);
+            MelonLogger.Warning("[Mogul] ServerManager.Despawn failed: " + ex.Message);
         }
+
+        try { if (go != null) UnityEngine.Object.Destroy(go); }
+        catch (Exception ex) { MelonLogger.Warning("[Mogul] Destroy failed: " + ex.Message); }
     }
 
     private static bool TryFindCivilianPrefab(out GameObject prefab)
@@ -122,68 +132,189 @@ public static class CustomerSpawner
         npc.Movement?.SetAgentType(NPCMovement.EAgentType.Humanoid);
 
         var agent = clone.GetComponent<NavMeshAgent>();
-        if (agent != null) agent.autoTraverseOffMeshLink = true;
+        if (agent != null)
+        {
+            agent.autoTraverseOffMeshLink = true;
+            // Lower avoidancePriority = higher priority. Vanilla NPCs default to 50;
+            // setting ours to 30 makes vanilla NPCs yield to our customers when paths cross.
+            agent.avoidancePriority = 30;
+        }
 
         MelonLogger.Msg($"[Mogul] Spawned customer {id} at {worldPos}");
         onSpawned?.Invoke(npc);
     }
 
+    // Pool data (paths verified in vanilla via OTC reference). All entries excluded
+    // police uniforms / hats so customers don't read as cops.
+    private static readonly Color[] SkinTones =
+    {
+        new(0.96f, 0.87f, 0.78f), new(0.92f, 0.80f, 0.70f),
+        new(0.85f, 0.70f, 0.55f), new(0.75f, 0.58f, 0.42f),
+        new(0.65f, 0.48f, 0.35f), new(0.55f, 0.40f, 0.28f),
+        new(0.48f, 0.35f, 0.25f), new(0.42f, 0.30f, 0.22f),
+    };
+
+    private static readonly string[] FaceExpressions =
+    {
+        "Avatar/Layers/Face/Face_Neutral",
+        "Avatar/Layers/Face/Face_NeutralPout",
+        "Avatar/Layers/Face/Face_SlightSmile",
+        "Avatar/Layers/Face/Face_SlightFrown",
+        "Avatar/Layers/Face/Face_SmugPout",
+    };
+
+    private static readonly string[] Shirts =
+    {
+        "Avatar/Layers/Top/T-Shirt",
+        "Avatar/Layers/Top/V-Neck",
+        "Avatar/Layers/Top/Buttonup",
+        "Avatar/Layers/Top/RolledButtonUp",
+        "Avatar/Layers/Top/FlannelButtonUp",
+        "Avatar/Layers/Top/Tucked T-Shirt",
+    };
+
+    private static readonly string[] Pants =
+    {
+        "Avatar/Layers/Bottom/Jeans",
+        "Avatar/Layers/Bottom/CargoPants",
+        "Avatar/Layers/Bottom/Jorts",
+    };
+
+    private static readonly string[] MaleHair =
+    {
+        "Avatar/Hair/buzzcut/BuzzCut", "Avatar/Hair/closebuzzcut/CloseBuzzCut",
+        "Avatar/Hair/franklin/Franklin", "Avatar/Hair/spiky/Spiky",
+        "Avatar/Hair/peaked/Peaked", "Avatar/Hair/tony/Tony",
+        "Avatar/Hair/mohawk/Mohawk", "Avatar/Hair/receding/Receding",
+        "Avatar/Hair/afro/Afro", "Avatar/Hair/bowlcut/BowlCut",
+    };
+
+    private static readonly string[] FemaleHair =
+    {
+        "Avatar/Hair/bun/Bun", "Avatar/Hair/highbun/HighBun",
+        "Avatar/Hair/lowbun/LowBun", "Avatar/Hair/fringeponytail/FringePonyTail",
+        "Avatar/Hair/messybob/MessyBob", "Avatar/Hair/sidepartbob/SidePartBob",
+        "Avatar/Hair/shoulderlength/ShoulderLength", "Avatar/Hair/longcurly/LongCurly",
+        "Avatar/Hair/doubletopknot/DoubleTopKnot", "Avatar/Hair/afro/Afro",
+        "Avatar/Hair/midfringe/MidFringe",
+    };
+
+    private static readonly string[] Shoes =
+    {
+        "Avatar/Accessories/Feet/Sneakers/Sneakers",
+        "Avatar/Accessories/Feet/CombatBoots/CombatBoots",
+        "Avatar/Accessories/Feet/DressShoes/DressShoes",
+        "Avatar/Accessories/Feet/Sandals/Sandals",
+    };
+
     private static void ApplyAppearance(NPC npc, int seed)
     {
         if (npc.Avatar == null) return;
 
-        var rng = new System.Random(seed);
-        bool isMale = rng.NextDouble() < 0.5;
-        float gender = isMale ? 0.1f : 0.9f;
-
-        // Skin tones: 8 options from very light to very dark
-        Color[] skins =
+        // Re-seed every spawn so the same sequential `id` doesn't always yield the same NPC.
+        // (`seed` is just _nextId++ — alone, the first customer of a session is always the same.)
+        int rngSeed = unchecked(seed ^ Environment.TickCount);
+        var prevState = UnityEngine.Random.state;
+        UnityEngine.Random.InitState(rngSeed);
+        bool isFemale;
+        try
         {
-            new Color(1.00f, 0.87f, 0.76f), new Color(0.95f, 0.76f, 0.60f),
-            new Color(0.87f, 0.67f, 0.47f), new Color(0.76f, 0.55f, 0.35f),
-            new Color(0.62f, 0.40f, 0.23f), new Color(0.48f, 0.29f, 0.15f),
-            new Color(0.34f, 0.19f, 0.09f), new Color(0.22f, 0.13f, 0.06f),
-        };
-        var skinColor = skins[rng.Next(skins.Length)];
+            var settings = ScriptableObject.CreateInstance<AvatarSettings>();
+            settings.FaceLayerSettings = new LayerList();
+            settings.BodyLayerSettings = new LayerList();
+            settings.AccessorySettings = new AccessoryList();
 
-        string[] maleHair  = { "Avatar/Hair/buzzcut/BuzzCut", "Avatar/Hair/afro/Afro", "Avatar/Hair/shortback/ShortBack" };
-        string[] femaleHair = { "Avatar/Hair/bun/Bun", "Avatar/Hair/afro/Afro", "Avatar/Hair/longstraight/LongStraight" };
-        string hairPath = isMale
-            ? maleHair[rng.Next(maleHair.Length)]
-            : femaleHair[rng.Next(femaleHair.Length)];
+            settings.Gender = UnityEngine.Random.Range(0f, 1f);
+            isFemale = settings.Gender >= 0.5f;
 
-        var settings = ScriptableObject.CreateInstance<AvatarSettings>();
-        settings.Gender     = gender;
-        settings.SkinColor  = skinColor;
-        settings.HairPath   = hairPath;
-        settings.Height     = 0.9f + (float)rng.NextDouble() * 0.2f;
-        settings.Weight     = 0.3f + (float)rng.NextDouble() * 0.4f;
+            var skinTone = SkinTones[UnityEngine.Random.Range(0, SkinTones.Length)];
+            settings.SkinColor = skinTone;
+            // Face tint slightly darker than skin for shading depth
+            var faceTint = new Color(skinTone.r * 0.92f, skinTone.g * 0.88f, skinTone.b * 0.85f);
 
-        // Face expression — REQUIRED, prevents black face
-        var faceList = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
-        faceList.Add(new AvatarSettings.LayerSetting { layerPath = "Avatar/Layers/Face/Face_Neutral", layerTint = Color.white });
-        settings.FaceLayerSettings = faceList;
+            settings.Height = UnityEngine.Random.Range(0.9f, 1.1f);
+            settings.Weight = UnityEngine.Random.Range(0.3f, 0.7f);
 
-        // Basic clothing
-        var bodyList = new Il2CppSystem.Collections.Generic.List<AvatarSettings.LayerSetting>();
-        bodyList.Add(new AvatarSettings.LayerSetting { layerPath = "Avatar/Layers/Top/T-Shirt",   layerTint = Color.white });
-        bodyList.Add(new AvatarSettings.LayerSetting { layerPath = "Avatar/Layers/Bottom/Jeans",  layerTint = Color.white });
-        settings.BodyLayerSettings = bodyList;
+            // Hair — natural tones, gender-pooled style
+            float hairHue = UnityEngine.Random.value;
+            settings.HairColor = hairHue < 0.4f ? new Color(0.10f, 0.08f, 0.06f)   // black/dark brown
+                               : hairHue < 0.7f ? new Color(0.35f, 0.22f, 0.12f)   // brown
+                               : hairHue < 0.9f ? new Color(0.70f, 0.55f, 0.35f)   // blonde
+                                                : new Color(0.55f, 0.25f, 0.15f);  // red
+            var hairPool = isFemale ? FemaleHair : MaleHair;
+            settings.HairPath = hairPool[UnityEngine.Random.Range(0, hairPool.Length)];
 
-        npc.Avatar.LoadAvatarSettings(settings);
+            // Eyes — without these, face renders black or eyes never load
+            settings.EyeBallTint = Color.white;
+            settings.PupilDilation = UnityEngine.Random.Range(0.5f, 0.8f);
+            settings.LeftEyeLidColor = skinTone;
+            settings.RightEyeLidColor = skinTone;
+            var lidConfig = new Eye.EyeLidConfiguration { topLidOpen = 0.5f, bottomLidOpen = 0.5f };
+            settings.LeftEyeRestingState = lidConfig;
+            settings.RightEyeRestingState = lidConfig;
+            settings.EyebrowScale = UnityEngine.Random.Range(0.8f, 1.1f);
+            settings.EyebrowThickness = UnityEngine.Random.Range(0.7f, 1.2f);
 
-        // Voice — borrow from EmployeeManager
+            // Face expression
+            settings.FaceLayerSettings.Add(new AvatarSettings.LayerSetting
+            {
+                layerPath = FaceExpressions[UnityEngine.Random.Range(0, FaceExpressions.Length)],
+                layerTint = faceTint,
+            });
+
+            // Clothing
+            settings.BodyLayerSettings.Add(new AvatarSettings.LayerSetting
+            {
+                layerPath = Shirts[UnityEngine.Random.Range(0, Shirts.Length)],
+                layerTint = RandomClothingColor(),
+            });
+            settings.BodyLayerSettings.Add(new AvatarSettings.LayerSetting
+            {
+                layerPath = Pants[UnityEngine.Random.Range(0, Pants.Length)],
+                layerTint = RandomClothingColor(),
+            });
+
+            // Shoes (accessory)
+            settings.AccessorySettings.Add(new AvatarSettings.AccessorySetting
+            {
+                path = Shoes[UnityEngine.Random.Range(0, Shoes.Length)],
+                color = RandomClothingColor(),
+            });
+
+            npc.Avatar.LoadAvatarSettings(settings);
+        }
+        finally
+        {
+            UnityEngine.Random.state = prevState;
+        }
+
+        // Voice — borrow from EmployeeManager. Pitch jittered so two same-voice NPCs sound distinct.
         var empMgr = NetworkSingleton<EmployeeManager>.Instance;
         if (empMgr != null)
         {
-            var voiceDb = empMgr.GetVoice(isMale, Math.Abs(seed % 100));
+            var voiceDb = empMgr.GetVoice(!isFemale, Math.Abs(rngSeed % 100));
             if (voiceDb != null)
             {
                 npc.VoiceOverEmitter?.SetDatabase(voiceDb, true);
-                float pitch = isMale ? 0.8f : 1.3f;
-                pitch += -0.1f + (float)(seed % 10) / 10f * 0.2f;
+                float pitch = (isFemale ? 1.1f : 0.9f) + ((rngSeed & 0xff) / 255f - 0.5f) * 0.2f;
                 npc.VoiceOverEmitter.PitchMultiplier = pitch;
             }
         }
+    }
+
+    private static Color RandomClothingColor()
+    {
+        // Muted, realistic palette — grays, blues, earth tones, occasional brights.
+        float pick = UnityEngine.Random.value;
+        if (pick < 0.25f) { float g = UnityEngine.Random.Range(0.1f, 0.5f); return new Color(g, g, g); }
+        if (pick < 0.55f) return new Color(UnityEngine.Random.Range(0.1f, 0.3f),
+                                           UnityEngine.Random.Range(0.15f, 0.35f),
+                                           UnityEngine.Random.Range(0.3f, 0.5f));
+        if (pick < 0.85f) return new Color(UnityEngine.Random.Range(0.3f, 0.55f),
+                                           UnityEngine.Random.Range(0.25f, 0.45f),
+                                           UnityEngine.Random.Range(0.15f, 0.3f));
+        return new Color(UnityEngine.Random.Range(0.4f, 0.8f),
+                         UnityEngine.Random.Range(0.2f, 0.5f),
+                         UnityEngine.Random.Range(0.2f, 0.5f));
     }
 }
