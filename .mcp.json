@@ -7,6 +7,14 @@
         "serve"
       ],
       "type": "stdio"
+    },
+    "lean-ctx": {
+      "command": "lean-ctx",
+      "args": [],
+      "env": {
+        "LEAN_CTX_DATA_DIR": "/home/imetto/.lean-ctx"
+      },
+      "type": "stdio"
     }
   }
 }

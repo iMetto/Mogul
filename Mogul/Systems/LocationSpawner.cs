@@ -16,13 +16,24 @@ public static class LocationSpawner
     // Tracks which location IDs have a building in the scene already.                                                       
     // Key = location.Id, Value = the spawned GameObject
     private static readonly Dictionary<string, GameObject> _spawned = new();
+    private static readonly Dictionary<string, NavigationBuilder> _navBuilders = new();
+    private static readonly Dictionary<string, List<GameObject>> _rackObjects = new();
 
     public static void Initialize()
     {
         // When save data changes (e.g. a purchase), re-check what needs spawning                                            
         MogulNetwork.OnDataChanged += _ => SyncSpawns();
     }
-    public static void ClearSpawned() => _spawned.Clear();
+    public static void ClearSpawned()
+    {
+        foreach (var go in _spawned.Values)
+            UnityEngine.Object.Destroy(go);
+        _spawned.Clear();
+        _navBuilders.Clear();
+        _rackObjects.Clear();
+        CustomerManager.ClearQueueCache();
+        SellDesk.ClearSpawned();
+    }
     public static void SyncSpawns()
     {
         foreach (var location in PropertySystem.Catalog)
@@ -57,26 +68,37 @@ public static class LocationSpawner
 
             if (MogulNetwork.IsHost)
             {
-                new PrefabPlacer(go.transform).Place(
-                Prefabs.ClassicalWoodenDoor, doorPos, doorRot,
-                networked: true,
-                 onReady: doorGo =>
+                var placer = new PrefabPlacer(go.transform);
+
+                placer.Place(Prefabs.ClassicalWoodenDoor, doorPos, doorRot,
+                    networked: true,
+                    onReady: doorGo =>
+                    {
+                        var ctrl = new DoorController(doorGo);
+                        ctrl.PlayerAccess = DoorAccess.Open;
+                    });
+
+                var locId = location.Id;
+                _rackObjects[locId] = new List<GameObject>();
+                foreach (var rack in location.StorageRacks)
                 {
-                    var ctrl = new DoorController(doorGo);
-                    ctrl.PlayerAccess = DoorAccess.Open;
-                });
+                    var pos = rack.LocalPos + new Vector3(0f, 0.5f, 0f);
+                    placer.Place(rack.Prefab, pos, rack.Rotation, networked: true,
+                        onReady: rackGo =>
+                        {
+                            if (_rackObjects.TryGetValue(locId, out var list))
+                                list.Add(rackGo);
+                            var comps = rackGo.GetComponents<UnityEngine.Component>();
+                            var names = string.Join(", ", System.Linq.Enumerable.Select(comps, c => c?.GetType().Name ?? "null"));
+                            MelonLogger.Msg($"[Mogul] Rack ready for {locId}: {rackGo.name} | components: {names}");
+                        });
+                }
             }
-
-            builder.CreateNavigationBuilder().Build();
+            var navBuilder = builder.CreateNavigationBuilder();
+            navBuilder.Build();
+            _navBuilders[location.Id] = navBuilder;
             _spawned[location.Id] = go;
-
-            var beacon = new GameObject("Beacon_" + location.Id);
-            beacon.transform.SetParent(go.transform);
-            beacon.transform.localPosition = new Vector3(0f, 15f, 0f);
-            var light = beacon.AddComponent<Light>();
-            light.color = Color.cyan;
-            light.intensity = 8f;
-            light.range = 60f;
+            SellDesk.SyncDesks();
 
             MelonLogger.Msg($"[Mogul] Spawned {location.Name} at {location.WorldPosition}");
         }
@@ -86,6 +108,16 @@ public static class LocationSpawner
         }
 
     }
+    public static bool TryGetSpawnedBuilding(string locationId, out GameObject buildingRoot)
+    {
+        return _spawned.TryGetValue(locationId, out buildingRoot);
+    }
+    public static bool TryGetRackObjects(string locationId, out List<GameObject> racks)
+        => _rackObjects.TryGetValue(locationId, out racks);
+
+    public static bool TryGetNavigationBuilder(string locationId, out NavigationBuilder nb)
+    => _navBuilders.TryGetValue(locationId, out nb);
+
 
     private static (Vector3 pos, Quaternion rot) GetDoorLocalTransform(Vector3 roomSize, WallSide door)
     {

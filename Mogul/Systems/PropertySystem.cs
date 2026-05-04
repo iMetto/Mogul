@@ -3,6 +3,8 @@ using System.Linq;
 using Mogul.Data;
 using S1API.Money;
 using S1MAPI.Building.Structural;
+using S1MAPI.Core;
+using S1MAPI.S1;
 using UnityEngine;
 
 namespace Mogul.Systems;
@@ -13,32 +15,54 @@ public static class PropertySystem
     // Coordinates and descriptions will be filled in once we explore the map.
     public static readonly IReadOnlyList<MogulLocation> Catalog = new List<MogulLocation>
     {
-        new MogulLocation
-        (
+        new MogulLocation(
             "loc_westville_01",
-         "Westville Corner",
-          "Quiet corner in Westville — low profile.",
-             8000f,
-               new Vector3(-165f, -3.0f,  74f),
-                 WallSide.East, new Vector3(5f, 3f, 4f)
-                 ),
-        new MogulLocation
-        (
+            "Westville Corner",
+            "Quiet corner in Westville — low profile.",
+            8000f,
+            new Vector3(-171.44f, -3.0f, 70f),
+            WallSide.East, new Vector3(12f, 3f, 8f),
+            deskOffset: new Vector3(10f, 0f, 6.5f),
+            deskRotation: Quaternion.Euler(0f, 180f, 0f),
+            storageRacks:
+            [
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 3f)),
+            ],
+            maxInteriorSlots: 1
+        ),
+        new MogulLocation(
             "loc_downtown_01",
-          "Downtown Spot",
-              "A prime location in the heart of downtown.",
-               15000f,
-               new Vector3(115f,   1.0f,  -1f),
-                WallSide.North, new Vector3(8f, 3f, 6f)
-                ),
-        new MogulLocation
-        (
+            "Downtown Spot",
+            "A prime location in the heart of downtown.",
+            15000f,
+            new Vector3(109f, 1.0f, -6.29f),
+            WallSide.North, new Vector3(8f, 3f, 12f),
+            deskOffset: new Vector3(1.5f, 0f, 10.5f),
+            deskRotation: Quaternion.Euler(0f, 90f, 0f),
+            storageRacks:
+            [
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(4f, 0f, 1.5f)),
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(6f, 0f, 1.5f)),
+            ],
+            maxInteriorSlots: 1
+        ),
+        new MogulLocation(
             "loc_hills_01",
-             "Hills Warehouse",
-               "Isolated industrial space in the hills.",
-                  10000f, new Vector3(74f, 5.0f, -67f),
-                    WallSide.East, new Vector3(12f, 4f, 10f)
-                    ),
+            "Hills Warehouse",
+            "Isolated industrial space in the hills.",
+            10000f,
+            new Vector3(71.93f, 5.0f, -76f),
+            WallSide.East, new Vector3(14f, 4f, 16f),
+            deskOffset: new Vector3(12.5f, 0f, 14.5f),
+            deskRotation: Quaternion.Euler(0f, 180f, 0f),
+            storageRacks:
+            [
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 4f)),
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 8f)),
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 12f)),
+            ],
+            maxInteriorSlots: 1
+        ),
     };
 
     public static MogulLocation Find(string id) =>
@@ -52,30 +76,13 @@ public static class PropertySystem
     public static string TryPurchaseWithDesign(string locationId, string designId)
     {
         MogulLocation loc = Find(locationId);
-        if (loc == null)         return "Unknown location.";
+        if (loc == null) return "Unknown location.";
         if (IsOwned(locationId)) return "Already owned.";
-        if (Money.GetCashBalance() < loc.Price)
-            return $"Not enough cash. Need ${loc.Price:N0}.";
+        if (Money.GetOnlineBalance() < loc.Price)
+            return $"Not enough balance. Need ${loc.Price:N0}.";
 
-        Money.ChangeCashBalance(-loc.Price, visualizeChange: true, playCashSound: true);
+        Money.CreateOnlineTransaction("Property Purchase", -loc.Price, 1, loc.Name);
         MogulNetwork.RequestAction(MogulActions.PurchaseWithDesign, $"{locationId}:{designId}");
-        return null;
-    }
-
-    public static string TryPurchase(string locationId)
-    {
-        MogulLocation loc = Find(locationId);
-        if (loc == null)
-            return "Unknown location.";
-
-        if (IsOwned(locationId))
-            return "Already owned.";
-
-        if (Money.GetCashBalance() < loc.Price)
-            return $"Not enough cash. Need ${loc.Price:N0}.";
-
-        Money.ChangeCashBalance(-loc.Price, visualizeChange: true, playCashSound: true);
-        MogulNetwork.RequestAction(MogulActions.RegisterLocation, locationId);
         return null;
     }
 }

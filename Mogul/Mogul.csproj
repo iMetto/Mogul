@@ -89,6 +89,9 @@
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(GameDlls)/UnityEngine.TextRenderingModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameDlls)/UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>$(GameDlls)/UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>

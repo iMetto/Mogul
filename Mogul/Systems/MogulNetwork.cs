@@ -1,20 +1,18 @@
 using System;
-using System.IO;
+using Il2CppFishNet;
+using Il2CppFishNet.Managing.Object;
 using Il2CppSteamworks;
-using Il2CppScheduleOne.DevUtilities;
-using Il2CppScheduleOne.Persistence;
 using MelonLoader;
 using Mogul.Data;
 using Newtonsoft.Json;
-using S1API.Lifecycle;
 using SteamNetworkLib;
 using SteamNetworkLib.Sync;
 
 namespace Mogul.Systems;
 
-// Single source of truth for all Mogul state.
-// SP: data lives in the game's own save folder (per save-file).
+// Transport for Mogul state. Owns the live in-memory snapshot and the Steam sync layer.
 // MP: host writes HostSyncVar → Steam lobby data → all clients receive automatically.
+// Disk persistence lives in MogulPersistence and reaches in via GetSnapshot/ReplaceData.
 public static class MogulNetwork
 {
     private static SteamNetworkClient _client;
@@ -29,10 +27,22 @@ public static class MogulNetwork
 
     public static event Action<MogulSaveData> OnDataChanged;
 
-    public static void Initialize()
+    public static MogulSaveData GetSnapshot() => _localData;
+
+    public static void ReplaceData(MogulSaveData data)
     {
-        GameLifecycle.OnLoadComplete += LoadFromDisk;
-        GameLifecycle.OnSaveStart += SaveToDisk;
+        _localData = data ?? new MogulSaveData();
+        OnDataChanged?.Invoke(_localData);
+    }
+
+    // Client-side: if we're connected and have a synced snapshot from the host, adopt it
+    // and return true so callers (e.g. disk loader) can skip their own load.
+    public static bool TryRefreshFromSync()
+    {
+        if (IsHost || _syncVar == null) return false;
+        _localData = _syncVar.Value;
+        OnDataChanged?.Invoke(_localData);
+        return true;
     }
 
     public static void InitializeSteam()
@@ -118,36 +128,36 @@ public static class MogulNetwork
                 break;
 
             case MogulActions.SetLocationDesign:
-            {
-                int sep = payload.IndexOf(':');
-                if (sep > 0)
                 {
-                    string locId    = payload.Substring(0, sep);
-                    string designId = payload.Substring(sep + 1);
-                    _localData.LocationDesigns[locId] = designId;
-                    changed = true;
-                }
-                break;
-            }
-
-            case MogulActions.PurchaseWithDesign:
-            {
-                // payload = "locationId:designId" — atomically registers the location
-                // and sets its design so SpawnBuilding always sees the correct design.
-                int sep = payload.IndexOf(':');
-                if (sep > 0)
-                {
-                    string locId    = payload.Substring(0, sep);
-                    string designId = payload.Substring(sep + 1);
-                    if (!_localData.RegisteredLocationIds.Contains(locId))
+                    int sep = payload.IndexOf(':');
+                    if (sep > 0)
                     {
-                        _localData.RegisteredLocationIds.Add(locId);
+                        string locId = payload.Substring(0, sep);
+                        string designId = payload.Substring(sep + 1);
                         _localData.LocationDesigns[locId] = designId;
                         changed = true;
                     }
+                    break;
                 }
-                break;
-            }
+
+            case MogulActions.PurchaseWithDesign:
+                {
+                    // payload = "locationId:designId" — atomically registers the location
+                    // and sets its design so SpawnBuilding always sees the correct design.
+                    int sep = payload.IndexOf(':');
+                    if (sep > 0)
+                    {
+                        string locId = payload.Substring(0, sep);
+                        string designId = payload.Substring(sep + 1);
+                        if (!_localData.RegisteredLocationIds.Contains(locId))
+                        {
+                            _localData.RegisteredLocationIds.Add(locId);
+                            _localData.LocationDesigns[locId] = designId;
+                            changed = true;
+                        }
+                    }
+                    break;
+                }
 
             case MogulActions.AddReach:
                 if (int.TryParse(payload, out int gain) && gain > 0)
@@ -187,52 +197,33 @@ public static class MogulNetwork
         OnDataChanged?.Invoke(_localData);
     }
 
-    private static string GetSavePath()
+    public static void DumpStoragePrefabs()
     {
-        var mgr = Singleton<SaveManager>.Instance;
-        if (mgr == null) return null;
-        return Path.Combine(mgr.PlayersSavePath, mgr.SaveName, "Mogul", "save.json");
-    }
-
-    private static void LoadFromDisk()
-    {
-        if (!IsHost && _syncVar != null)
-        {
-            _localData = _syncVar.Value;
-            OnDataChanged?.Invoke(_localData);
-            return;
-        }
         try
         {
-            string path = GetSavePath();
-            if (path == null || !File.Exists(path))
+            var nm = InstanceFinder.NetworkManager;
+            if (nm == null) { MelonLogger.Warning("[Mogul] DumpPrefabs: NetworkManager null"); return; }
+            var prefabs = nm.SpawnablePrefabs;
+            if (prefabs == null) { MelonLogger.Warning("[Mogul] DumpPrefabs: SpawnablePrefabs null"); return; }
+
+            int count = prefabs.GetObjectCount();
+            MelonLogger.Msg($"[Mogul] === Storage-related prefabs (total {count}) ===");
+            for (int i = 0; i < count; i++)
             {
-                _localData = new MogulSaveData();
-                return;
+                var obj = prefabs.GetObject(true, i);
+                if (obj == null) continue;
+                var name = obj.gameObject.name;
+                var lower = name.ToLower();
+                if (lower.Contains("shelf") || lower.Contains("rack") || lower.Contains("storage")
+                    || lower.Contains("display") || lower.Contains("cabinet") || lower.Contains("crate"))
+                    MelonLogger.Msg($"[Mogul]   [{i}] {name}");
             }
-            _localData = JsonConvert.DeserializeObject<MogulSaveData>(File.ReadAllText(path))
-                         ?? new MogulSaveData();
-            MelonLogger.Msg("[Mogul] Save loaded from " + path);
+            MelonLogger.Msg("[Mogul] === End storage prefab dump ===");
         }
         catch (Exception ex)
         {
-            MelonLogger.Warning("[Mogul] LoadFromDisk failed: " + ex.Message);
-            _localData = new MogulSaveData();
+            MelonLogger.Warning("[Mogul] DumpPrefabs failed: " + ex.Message);
         }
     }
 
-    private static void SaveToDisk()
-    {
-        try
-        {
-            string path = GetSavePath();
-            if (path == null) return;
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            File.WriteAllText(path, JsonConvert.SerializeObject(_localData));
-        }
-        catch (Exception ex)
-        {
-            MelonLogger.Warning("[Mogul] SaveToDisk failed: " + ex.Message);
-        }
-    }
 }
