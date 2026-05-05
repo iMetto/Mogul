@@ -1,7 +1,10 @@
 using System.Collections.Generic;
+using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Effects;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Product;
 using Il2CppScheduleOne.Storage;
+using MelonLoader;
 using UnityEngine;
 
 namespace Mogul.Systems;
@@ -12,7 +15,8 @@ public class StorageProduct
     public string DisplayName;
     public int QualityLevel;   // 0=Trash 1=Poor 2=Standard 3=Premium 4=Heavenly
     public int TotalPackages;  // packages available across all slots
-    public float Price;        // market value per unit (Phase 4: use PricingSaveData)
+    public float Price;        // player-set price per unit, falls back to MarketValue
+    public List<string> EffectIds = new List<string>();
 
     public string QualityName => QualityLevel switch
     {
@@ -59,13 +63,37 @@ public static class StorageScanner
                 }
                 else
                 {
+                    var effectIds = new List<string>();
+                    try
+                    {
+                        if (def.Properties != null)
+                            for (int ei = 0; ei < def.Properties.Count; ei++)
+                            {
+                                var eff = def.Properties[ei];
+                                if (eff != null)
+                                {
+                                    MelonLogger.Msg($"[Mogul:EffectName] product={def.ID} effect[{ei}]={eff.name}");
+                                    effectIds.Add(eff.name.ToLower());
+                                }
+                            }
+                    }
+                    catch (System.Exception ex)
+                    {
+                        MelonLogger.Warning($"[Mogul:EffectName] failed reading effects for {def.ID}: {ex.Message}");
+                    }
+
+                    float price;
+                    try { price = NetworkSingleton<ProductManager>.Instance?.GetPrice(def) ?? def.MarketValue; }
+                    catch { price = def.MarketValue; }
+
                     aggregated[key] = new StorageProduct
                     {
-                        ProductId = def.ID,
-                        DisplayName = def.Name ?? def.ID,
-                        QualityLevel = quality,
+                        ProductId     = def.ID,
+                        DisplayName   = def.Name ?? def.ID,
+                        QualityLevel  = quality,
                         TotalPackages = slot.Quantity,
-                        Price = def.MarketValue,
+                        Price         = price,
+                        EffectIds     = effectIds,
                     };
                 }
             }

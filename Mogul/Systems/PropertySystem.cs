@@ -28,7 +28,7 @@ public static class PropertySystem
             [
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 3f)),
             ],
-            maxInteriorSlots: 1
+            maxInteriorSlots: 0
         ),
         new MogulLocation(
             "loc_downtown_01",
@@ -44,7 +44,7 @@ public static class PropertySystem
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(4f, 0f, 1.5f)),
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(6f, 0f, 1.5f)),
             ],
-            maxInteriorSlots: 1
+            maxInteriorSlots: 0
         ),
         new MogulLocation(
             "loc_hills_01",
@@ -61,7 +61,7 @@ public static class PropertySystem
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 8f)),
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 12f)),
             ],
-            maxInteriorSlots: 1
+            maxInteriorSlots: 0
         ),
     };
 

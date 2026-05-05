@@ -28,7 +28,7 @@ internal static class QueueSlots
 {
     private const float Spacing          = 1.0f;
     private const int   MaxInterior      = 8;
-    private const int   MaxExterior      = 6;
+    private const int   MaxExterior      = 10;
 
     private static readonly Dictionary<string, List<QueueSlot>> _cache = new();
 

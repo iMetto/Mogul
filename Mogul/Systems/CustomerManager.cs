@@ -27,6 +27,10 @@ public static class CustomerManager
         public Vector3 PendingWorldTarget;
         public Action PendingArrival;
 
+        // Demand — generated at spawn, resolved to an order at arrival
+        public CustomerPreferences Preferences;
+        public List<SelectedProduct> Order;
+
         // Health/recovery state — see Tick.
         public float StateEnteredAt;
         public int Retries;
@@ -50,6 +54,10 @@ public static class CustomerManager
     private static readonly List<(string locationId, float deadline)> _scheduledRespawns = new();
     private const int MaxConcurrentRespawns = 2;
     private const float RespawnDelay = 3f;
+
+    // Per-location cap on simultaneous active (non-leaving) customers. Must not exceed
+    // (1 counter + QueueSlots.MaxExterior) or late arrivals stack on the last slot.
+    private const int MaxConcurrentCustomers = 10;
 
     private const float StuckSampleInterval = 2f;
     private const float StuckMoveThreshold = 0.5f;
@@ -81,6 +89,19 @@ public static class CustomerManager
     {
         if (!MogulNetwork.IsHost) return;
 
+        // Hard cap: never let one building hold more than MaxConcurrentCustomers active
+        // (non-leaving) customers. Beyond the slot count, late arrivals stack on the same
+        // point and flock/circle. Slot capacity = 1 (counter) + MaxExterior (10) = 11.
+        int active = 0;
+        foreach (var kvp in _active)
+            if (kvp.Value.LocationId == location.Id && kvp.Value.State != CustomerState.Leaving)
+                active++;
+        if (active >= MaxConcurrentCustomers)
+        {
+            MelonLogger.Msg($"[Mogul] {location.Id} at customer cap ({active}) — skipping spawn");
+            return;
+        }
+
         if (!LocationSpawner.TryGetNavigationBuilder(location.Id, out var navBuilder))
         {
             MelonLogger.Warning($"[Mogul] NavigationBuilder not ready for {location.Id}");
@@ -111,6 +132,7 @@ public static class CustomerManager
                 StateEnteredAt = Time.time,
                 LastSamplePos = npc.transform.position,
                 LastSampleTime = Time.time,
+                Preferences = CustomerDemand.GeneratePreferences(npc.gameObject.GetInstanceID()),
             };
             _active[npc] = entry;
 
@@ -288,7 +310,7 @@ public static class CustomerManager
             if (hovered == counterInteractable && eDown)
             {
                 if (LocationSpawner.TryGetSpawnedBuilding(location.Id, out var buildingRoot))
-                    CheckoutHandler.Open(location.Id, waiting.Npc, buildingRoot);
+                    CheckoutHandler.Open(location.Id, waiting.Npc, buildingRoot, waiting.Order ?? new List<SelectedProduct>());
             }
         }
     }
@@ -298,19 +320,38 @@ public static class CustomerManager
         if (entry.State != CustomerState.WalkingIn) return;
         entry.PendingArrival = null;
 
-        // Quick stock check on arrival — NPC leaves immediately if shelves are empty
-        if (!LocationSpawner.TryGetSpawnedBuilding(entry.LocationId, out var buildingRoot) ||
-            StorageScanner.Scan(buildingRoot).Count == 0)
+        if (!LocationSpawner.TryGetSpawnedBuilding(entry.LocationId, out var buildingRoot))
         {
-            entry.Npc.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
-            entry.Npc.DialogueHandler?.WorldspaceRend?.ShowText("Nothing here for me...", 3f);
             StartLeaving(entry);
             return;
         }
 
+        var stock = StorageScanner.Scan(buildingRoot);
+        var (order, rejection) = CustomerDemand.DecidePurchases(
+            entry.Preferences, stock, entry.Npc.gameObject.GetInstanceID());
+
+        if (order.Count == 0)
+        {
+            string message = rejection switch
+            {
+                RejectionReason.EmptyShelves => "Nothing here for me...",
+                RejectionReason.TooExpensive => "Way too pricey...",
+                _                            => "Nothing I want...",
+            };
+            entry.Npc.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
+            entry.Npc.DialogueHandler?.WorldspaceRend?.ShowText(message, 3f);
+            MelonLogger.Msg($"[Mogul] Customer rejected ({rejection}) in {entry.LocationId}");
+            StartLeaving(entry);
+            return;
+        }
+
+        entry.Order = order;
         SetState(entry, CustomerState.WaitingAtCounter);
         entry.Npc.VoiceOverEmitter?.Play(EVOLineType.Greeting);
-        MelonLogger.Msg($"[Mogul] Customer waiting at counter in {entry.LocationId}");
+
+        float total = 0f;
+        foreach (var p in order) total += p.Total;
+        MelonLogger.Msg($"[Mogul] Customer ordered {order.Count} item(s) ~${total:F0} in {entry.LocationId}");
     }
 
     private static void OnCheckoutClosed(string locationId, CheckoutResult result)

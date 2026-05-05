@@ -37,7 +37,7 @@ Nested public struct on `CustomerInstance`. All preference data lives here.
 | `PreferredEffectIds` | `string[]` | Always 3 entries (lowercased ScriptableObject names, e.g. `"euphoric"`) |
 | `MaxBudgetPerItem` | `float` | Hard per-product price ceiling ($); exceeded products are skipped |
 | `TotalOrderBudget` | `float` | Total $ to spend this visit. For deal customers this equals vanilla daily budget; for walk-ins it's a weekly-budget fallback |
-| `WeedAffinity` | `float` | -1 to 1; contributes `WeedAffinity * 0.3f` to raw enjoyment score |
+| `WeedAffinity` | `float` | -1 to 1; walk-ins hardcoded `0.8f`; deal customers from vanilla affinity data. Contributes `WeedAffinity * 0.3f` to raw enjoyment score |
 
 ### Familiarity
 `Familiarity` (float, 0–1) controls how many products the budtender recommends. For walk-ins it is seeded random; for deal customers it is `RelationDelta / 5f` (vanilla relationship).
@@ -191,6 +191,36 @@ The flow has two paths: **physical browsing** (walk-ins visiting shelves) and **
   - 25% chance: 0.31–0.55 (Standard tier)
   - 10% chance: 0.56–0.75 (Premium tier)
 - **Deal customers** (`ExtractVanillaPreferences`): `CustomerData.GetQualityScalar(data.Standards.GetCorrespondingQuality())` — uses the vanilla NPC's actual quality standard.
+
+### Where `PreferredEffectIds` comes from
+
+`GetAllEffectIds()` (lines 86–127) builds the pool:
+- Primary: `Resources.LoadAll<Effect>($"Properties/Tier{tier}")` for tiers 1–5 — mirrors vanilla's `RandomizeFavouriteEffects`.
+- Fallback: hardcoded 35-effect string array (e.g. `"antigravity"`, `"athletic"`, … `"zombifying"`) if Resources unavailable.
+
+Selection inside `GeneratePreferences`:
+- Fisher-Yates partial shuffle on the full pool (seeded from `SpawnSeed`).
+- First 3 entries after the shuffle become `PreferredEffectIds`.
+- Effects are lowercased ScriptableObject names (e.g. `"euphoric"`, `"calming"`).
+
+For **deal customers** (`ExtractVanillaPreferences`):
+- Read from `customer.customerData.PreferredProperties` (vanilla's existing effect preferences).
+- Padded to exactly 3 entries with `"calming"` if fewer than 3 are set.
+
+### Where `WeedAffinity` comes from
+- **Walk-ins**: hardcoded `0.8f` — all walk-in customers have high weed affinity. Not seeded/random.
+- **Deal customers**: read from `customer.currentAffinityData.GetAffinity(EDrugType.Marijuana)`.
+
+### Where `MaxBudgetPerItem` comes from
+- **Walk-ins**: `VanillaMinWeeklySpend * LevelManager.GetOrderLimitMultiplier(CurrentRank)`.
+  - `VanillaMinWeeklySpend` is a class-level constant (baseline weekly spend floor from the vanilla game).
+  - `LevelManager.GetOrderLimitMultiplier(CurrentRank)` scales with the player's in-game rank — higher rank = higher customer budgets.
+- **Deal customers** (`ExtractVanillaPreferences`): computed from `TryGetVanillaDailyBudget`, same as `TotalOrderBudget`.
+
+### Product type selection
+There is **no product-type field** in `CustomerPreferences`. The NPC does not pre-specify weed vs. meth vs. coke.
+
+Product type falls out of scoring: `WeedAffinity * 0.3f` contributes to every weed product's `drugScore`. Walk-in affinity of `0.8f` adds a fixed `+0.24` to all weed products in `DecidePurchases`. Non-weed products get a lower (or negative) drug score unless a different affinity source is implemented. In OTC's current form walk-ins effectively always prefer weed over other drugs.
 
 ### Quality in checkout
 - `CounterProduct.QualityLevel` is stored and passed to `saveData.RecordSale`.

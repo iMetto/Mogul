@@ -1,4 +1,4 @@
-using System;
+using Il2CppScheduleOne.PlayerScripts;
 using Mogul.Systems;
 using UnityEngine;
 
@@ -7,22 +7,25 @@ namespace Mogul.UI;
 public static class CheckoutUI
 {
     private const float WindowWidth = 480f;
-    private const float RowHeight = 36f;
-    private const float MaxListHeight = 200f;
-    private const float HeaderHeight = 52f;
-    private const float FooterHeight = 44f;
-    private const float Padding = 10f;
+    private const float RowHeight   = 44f;
+    private const float MaxRows     = 6f;
+    private const float HeaderH     = 44f;
+    private const float FooterH     = 40f;
+    private const float Pad         = 16f;
 
     private static Vector2 _scrollPos;
-    private static CursorLockMode _savedLockMode;
-    private static bool _savedCursorVisible;
+    private static CursorLockMode _savedLock;
+    private static bool _savedVisible;
     private static bool _cursorCaptured;
 
-    // Cached styles — created once inside OnGUI so GUI.skin is available
-    private static GUIStyle _rowStyle;
-    private static GUIStyle _labelStyle;
-    private static GUIStyle _closeStyle;
-    private static GUIStyle _boxStyle;
+    private static GUIStyle _nameStyle;
+    private static GUIStyle _subStyle;
+    private static GUIStyle _headerStyle;
+    private static GUIStyle _hintStyle;
+    private static GUIStyle _totalStyle;
+
+    private static Texture2D _bgTex;
+    private static Texture2D _divTex;
 
     public static void Draw()
     {
@@ -33,12 +36,11 @@ public static class CheckoutUI
         }
 
         if (!_cursorCaptured) CaptureCursor();
-
+        FreezeCamera();
         EnsureStyles();
 
-        var products = CheckoutHandler.Products;
+        var order = CheckoutHandler.CustomerOrder;
 
-        // Keyboard shortcuts
         if (Event.current.type == EventType.KeyDown)
         {
             if (Event.current.keyCode == KeyCode.Q)
@@ -47,98 +49,171 @@ public static class CheckoutUI
                 Event.current.Use();
                 return;
             }
-
-            for (int i = 0; i < Math.Min(products.Count, 9); i++)
+            if (Event.current.keyCode == KeyCode.E)
             {
-                if (Event.current.keyCode == (KeyCode)((int)KeyCode.Alpha1 + i))
-                {
-                    CheckoutHandler.Sell(products[i]);
-                    Event.current.Use();
-                    return;
-                }
+                CheckoutHandler.FulfillOrder();
+                Event.current.Use();
+                return;
             }
         }
 
-        float listHeight = Mathf.Min(products.Count * RowHeight, MaxListHeight);
-        float windowHeight = HeaderHeight + listHeight + FooterHeight;
-        float x = (Screen.width - WindowWidth) / 2f;
-        float y = (Screen.height - windowHeight) / 2f;
+        float listH = order.Count > 0
+            ? Mathf.Min(order.Count * RowHeight, MaxRows * RowHeight)
+            : RowHeight;
+        float winH = HeaderH + listH + FooterH;
+        float wx   = (Screen.width  - WindowWidth) * 0.5f;
+        float wy   = (Screen.height - winH) * 0.5f;
 
-        // Background
-        GUI.Box(new Rect(x, y, WindowWidth, windowHeight), "", _boxStyle);
+        GUI.DrawTexture(new Rect(wx, wy, WindowWidth, winH), _bgTex, ScaleMode.ScaleAndCrop);
 
-        GUILayout.BeginArea(new Rect(x + Padding, y + Padding, WindowWidth - Padding * 2, windowHeight - Padding * 2));
+        // Header
+        GUI.Label(new Rect(wx + Pad, wy + 12f, WindowWidth * 0.65f, 22f),
+            "Customer order", _headerStyle);
+        GUI.Label(new Rect(wx + WindowWidth - 104f, wy + 14f, 92f, 18f),
+            "[Q]  dismiss", _hintStyle);
 
-        GUILayout.Label("  Customer is waiting — select a product to sell", _labelStyle);
-        GUILayout.Space(4f);
+        // Divider below header
+        GUI.DrawTexture(new Rect(wx, wy + HeaderH - 1f, WindowWidth, 1f), _divTex);
 
-        // Scrollable product list
-        StorageProduct toSell = null;
-        _scrollPos = GUILayout.BeginScrollView(_scrollPos, GUILayout.Height(listHeight));
+        // Order rows
+        bool hasScroll  = order.Count * RowHeight > listH;
+        float innerW    = WindowWidth - (hasScroll ? 14f : 0f);
+        float contentH  = Mathf.Max(order.Count, 1) * RowHeight;
 
-        for (int i = 0; i < products.Count; i++)
+        _scrollPos = GUI.BeginScrollView(
+            new Rect(wx, wy + HeaderH, WindowWidth, listH),
+            _scrollPos,
+            new Rect(0, 0, innerW, contentH),
+            false, false
+        );
+
+        if (order.Count == 0)
         {
-            var p = products[i];
-            string shortcut = i < 9 ? $"[{i + 1}]" : "   ";
-            string label = $"  {shortcut}  {p.DisplayName}   ·   {p.QualityName}   ·   ${p.Price:F0}   ·   {p.TotalPackages} in stock";
+            GUI.Label(new Rect(Pad, (RowHeight - 16f) * 0.5f, innerW - Pad, 16f),
+                "No items", _subStyle);
+        }
+        else
+        {
+            var savedColor = GUI.color;
+            for (int i = 0; i < order.Count; i++)
+            {
+                var   item = order[i];
+                float ry   = i * RowHeight;
+                string sub = $"{item.QualityName}  ·  ${item.Price:F0}/pkg  ·  {item.Quantity} pkg  =  ${item.Total:F0}";
 
-            if (GUILayout.Button(label, _rowStyle, GUILayout.Height(RowHeight)))
-                toSell = p;
+                if (i > 0)
+                {
+                    GUI.color = new Color(1f, 1f, 1f, 0.05f);
+                    GUI.DrawTexture(new Rect(Pad, ry, innerW - Pad, 1f), Texture2D.whiteTexture);
+                    GUI.color = savedColor;
+                }
+
+                GUI.Label(new Rect(Pad,       ry + 8f,  innerW - Pad, 17f), item.DisplayName, _nameStyle);
+                GUI.Label(new Rect(Pad,       ry + 25f, innerW - Pad, 14f), sub,              _subStyle);
+            }
         }
 
-        GUILayout.EndScrollView();
+        GUI.EndScrollView();
 
-        GUILayout.Space(4f);
+        // Footer: total + confirm hint
+        float footerY = wy + HeaderH + listH;
+        GUI.DrawTexture(new Rect(wx, footerY, WindowWidth, 1f), _divTex);
 
-        bool dismiss = GUILayout.Button("  [Q]  Close menu (customer keeps waiting)", _closeStyle, GUILayout.Height(30f));
+        float orderTotal = 0f;
+        foreach (var item in order) orderTotal += item.Total;
 
-        GUILayout.EndArea();
+        GUI.Label(new Rect(wx + Pad, footerY + 11f, WindowWidth * 0.5f, 18f),
+            $"Total  ${orderTotal:F0}", _totalStyle);
+        GUI.Label(new Rect(wx + WindowWidth - 104f, footerY + 12f, 92f, 18f),
+            "[E]  confirm", _hintStyle);
 
-        // Act after layout pass to avoid IMGUI state corruption
-        if (toSell != null) CheckoutHandler.Sell(toSell);
-        else if (dismiss) CheckoutHandler.Dismiss();
+        // Click anywhere on the footer to confirm
+        if (GUI.Button(new Rect(wx, footerY, WindowWidth, FooterH), GUIContent.none, GUIStyle.none))
+            CheckoutHandler.FulfillOrder();
+    }
+
+    private static void FreezeCamera()
+    {
+        try
+        {
+            var cam = PlayerCamera.Instance;
+            if (cam == null) return;
+            cam.mouseX = 0f;
+            cam.mouseY = 0f;
+        }
+        catch { }
     }
 
     private static void EnsureStyles()
     {
-        if (_rowStyle != null) return;
+        if (_nameStyle != null) return;
 
-        _rowStyle = new GUIStyle(GUI.skin.button)
-        {
-            fontSize = 13,
-            alignment = TextAnchor.MiddleLeft,
-        };
-        _rowStyle.padding = new RectOffset(6, 6, 4, 4);
+        _bgTex  = BuildGrainTex(64);
+        _divTex = BuildDivTex();
 
-        _labelStyle = new GUIStyle(GUI.skin.label)
+        _nameStyle = new GUIStyle(GUI.skin.label) { fontSize = 13 };
+        _nameStyle.normal.textColor = new Color(0.90f, 0.90f, 0.88f);
+
+        _subStyle = new GUIStyle(GUI.skin.label) { fontSize = 11 };
+        _subStyle.normal.textColor = new Color(0.46f, 0.46f, 0.44f);
+
+        _headerStyle = new GUIStyle(GUI.skin.label) { fontSize = 13 };
+        _headerStyle.normal.textColor = new Color(0.88f, 0.88f, 0.85f);
+
+        _totalStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 13,
+            fontSize  = 13,
             fontStyle = FontStyle.Bold,
         };
-        _labelStyle.normal.textColor = Color.white;
+        _totalStyle.normal.textColor = new Color(0.88f, 0.88f, 0.85f);
 
-        _closeStyle = new GUIStyle(GUI.skin.button)
+        _hintStyle = new GUIStyle(GUI.skin.label)
         {
-            fontSize = 12,
-            alignment = TextAnchor.MiddleLeft,
+            fontSize  = 11,
+            alignment = TextAnchor.MiddleRight,
         };
+        _hintStyle.normal.textColor = new Color(0.36f, 0.36f, 0.34f);
+    }
 
-        _boxStyle = new GUIStyle(GUI.skin.box);
+    private static Texture2D BuildGrainTex(int size)
+    {
+        var rng = new System.Random(7);
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode   = TextureWrapMode.Repeat,
+        };
+        for (int py = 0; py < size; py++)
+            for (int px = 0; px < size; px++)
+            {
+                float g = (float)rng.NextDouble() * 0.06f;
+                tex.SetPixel(px, py, new Color(0.04f + g, 0.04f + g, 0.05f + g, 0.91f));
+            }
+        tex.Apply();
+        return tex;
+    }
+
+    private static Texture2D BuildDivTex()
+    {
+        var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+        tex.SetPixel(0, 0, new Color(1f, 1f, 1f, 0.08f));
+        tex.Apply();
+        return tex;
     }
 
     private static void CaptureCursor()
     {
-        _savedLockMode = Cursor.lockState;
-        _savedCursorVisible = Cursor.visible;
+        _savedLock    = Cursor.lockState;
+        _savedVisible = Cursor.visible;
         Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-        _cursorCaptured = true;
+        Cursor.visible   = true;
+        _cursorCaptured  = true;
     }
 
     private static void ReleaseCursor()
     {
-        Cursor.lockState = _savedLockMode;
-        Cursor.visible = _savedCursorVisible;
-        _cursorCaptured = false;
+        Cursor.lockState = _savedLock;
+        Cursor.visible   = _savedVisible;
+        _cursorCaptured  = false;
     }
 }
