@@ -77,6 +77,16 @@ public static class SellDesk
 
     public static void ClearSpawned() => _spawned.Clear();
 
+    public static void ClearForLocation(string locationId)
+    {
+        if (_spawned.TryGetValue(locationId, out var inst))
+        {
+            if (inst.Counter != null)
+                UnityEngine.Object.Destroy(inst.Counter);
+            _spawned.Remove(locationId);
+        }
+    }
+
     public static void SyncDesks()
     {
         foreach (var location in PropertySystem.Catalog)
@@ -180,29 +190,31 @@ public static class SellDesk
             counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
             instance.CounterInteractable = counterInteractable;
 
-            var registerGo = Meshes.Custom("Cash").Instantiate(
-             "Mogul_CashRegister_" + location.Id,
-                parent: counter.transform,
-                addCollider: true
-             );
-
-            if (registerGo != null)
-            {
-                registerGo.SetActive(true);
-                registerGo.transform.localPosition = new Vector3(0f, 0.95f, 0f);
-                registerGo.transform.localRotation = Quaternion.identity;
-                registerGo.transform.localScale = new Vector3(0.3f, 0.3f, 0.3f);
-
-                var interactable = registerGo.AddComponent<InteractableObject>();
-                interactable.displayLocationCollider = registerGo.GetComponent<Collider>();
-                interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-                instance.RegisterInteractable = interactable;
-
-                instance.Register = registerGo;
-                MelonLogger.Msg($"[Mogul] Cash register placed for {location.Id}");
-            }
-            else
-                MelonLogger.Warning($"[Mogul] CashRegister mesh not found for {location.Id}");
+            var regPlacer = new PrefabPlacer(counter.transform);
+            var locId = location.Id;
+            regPlacer.Place(Prefabs.CashRegister,
+                new Vector3(0f, 0.95f, 0f),
+                Quaternion.identity,
+                networked: false,
+                onReady: regGo =>
+                {
+                    if (regGo == null)
+                    {
+                        MelonLogger.Warning($"[Mogul] CashRegister prefab not ready for {locId}");
+                        return;
+                    }
+                    regGo.name = "Mogul_CashRegister_" + locId;
+                    var interactable = regGo.AddComponent<InteractableObject>();
+                    interactable.displayLocationCollider = regGo.GetComponent<Collider>()
+                                                        ?? regGo.GetComponentInChildren<Collider>(true);
+                    interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+                    if (_spawned.TryGetValue(locId, out var inst2))
+                    {
+                        inst2.RegisterInteractable = interactable;
+                        inst2.Register = regGo;
+                    }
+                    MelonLogger.Msg($"[Mogul] Cash register placed for {locId}");
+                });
 
             MelonLogger.Msg($"[Mogul] Sell desk spawned for {location.Id}. Desk={position}, QueueAnchor={queueAnchor}");
         }

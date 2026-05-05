@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Il2CppScheduleOne.Economy;
+using Il2CppScheduleOne.Product;
 using UnityEngine;
 
 namespace Mogul.Systems;
@@ -44,21 +46,54 @@ public static class CustomerDemand
         "spicy", "thoughtprovoking", "toxic", "tropicthunder", "zombifying"
     };
 
-    // Mirrors OTC GeneratePreferences distribution.
-    // seed should be unique per customer visit (e.g. NPC instance ID).
-    public static CustomerPreferences GeneratePreferences(int seed)
+    public static CustomerPreferences GeneratePreferences(int seed, Customer customerComp = null)
     {
         var rng = new System.Random(seed);
+        var data = customerComp?.customerData;
 
         float qualityExp;
-        double roll = rng.NextDouble();
-        if      (roll < 0.30) qualityExp = (float)(rng.NextDouble() * 0.12);
-        else if (roll < 0.65) qualityExp = 0.13f + (float)(rng.NextDouble() * 0.17);
-        else if (roll < 0.90) qualityExp = 0.31f + (float)(rng.NextDouble() * 0.24);
-        else                  qualityExp = 0.56f + (float)(rng.NextDouble() * 0.19);
+        if (data != null)
+        {
+            // Map Standards → quality expectation using the same scale as EQuality (0–4 × 0.25)
+            int qualLevel = (int)data.Standards.GetCorrespondingQuality();
+            qualityExp = Mathf.Clamp(qualLevel * 0.25f + (float)(rng.NextDouble() - 0.5) * 0.08f, 0f, 1f);
+        }
+        else
+        {
+            double roll = rng.NextDouble();
+            if      (roll < 0.30) qualityExp = (float)(rng.NextDouble() * 0.12);
+            else if (roll < 0.65) qualityExp = 0.13f + (float)(rng.NextDouble() * 0.17);
+            else if (roll < 0.90) qualityExp = 0.31f + (float)(rng.NextDouble() * 0.24);
+            else                  qualityExp = 0.56f + (float)(rng.NextDouble() * 0.19);
+        }
 
-        // Phase 2: scale budget by player reach tier
-        float budget = 50f + (float)(rng.NextDouble() * 150f); // $50–$200
+        float budget;
+        if (data != null && data.MaxWeeklySpend > 0f)
+        {
+            int ordersPerWeek = System.Math.Max(1, (data.MinOrdersPerWeek + data.MaxOrdersPerWeek) / 2);
+            float visitMin = data.MinWeeklySpend / ordersPerWeek;
+            float visitMax = data.MaxWeeklySpend / ordersPerWeek;
+            budget = visitMin + (float)(rng.NextDouble() * (visitMax - visitMin));
+        }
+        else
+        {
+            budget = 50f + (float)(rng.NextDouble() * 150f);
+        }
+
+        float weedAffinity = 0.8f;
+        if (data?.DefaultAffinityData?.ProductAffinities != null)
+        {
+            var affinities = data.DefaultAffinityData.ProductAffinities;
+            for (int i = 0; i < affinities.Count; i++)
+            {
+                var pa = affinities[i];
+                if (pa != null && pa.DrugType == EDrugType.Marijuana)
+                {
+                    weedAffinity = Mathf.InverseLerp(-1f, 1f, pa.Affinity);
+                    break;
+                }
+            }
+        }
 
         // Fisher-Yates partial shuffle to pick 3 effect IDs
         var pool = new string[EffectPool.Length];
@@ -74,7 +109,7 @@ public static class CustomerDemand
             QualityExpectation = qualityExp,
             MaxBudgetPerItem   = budget * 0.6f,
             TotalBudget        = budget,
-            WeedAffinity       = 0.8f,
+            WeedAffinity       = weedAffinity,
             PreferredEffectIds = new[] { pool[0], pool[1], pool[2] },
         };
     }

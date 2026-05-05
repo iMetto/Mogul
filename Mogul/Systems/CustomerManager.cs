@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Il2CppScheduleOne;
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.NPCs;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Interaction;
@@ -20,6 +21,7 @@ public static class CustomerManager
     private class CustomerEntry
     {
         public NPC Npc;
+        public Customer CustomerComp;
         public string LocationId;
         public NavigationBuilder NavBuilder;
         public CustomerState State;
@@ -74,6 +76,22 @@ public static class CustomerManager
 
     public static void ClearQueueCache() => QueueSlots.ClearCache();
 
+    public static void EvictFromLocation(string locationId)
+    {
+        var toRemove = new List<NPC>();
+        foreach (var kvp in _active)
+        {
+            if (kvp.Value.LocationId != locationId) continue;
+            if (kvp.Key != null && kvp.Key.gameObject != null)
+                CustomerSpawner.Despawn(kvp.Key);
+            toRemove.Add(kvp.Key);
+        }
+        foreach (var k in toRemove) _active.Remove(k);
+        _pendingAdvance.Remove(locationId);
+        _respawnsInFlight.Remove(locationId);
+        _scheduledRespawns.RemoveAll(t => t.locationId == locationId);
+    }
+
     public static void SpawnForNearestLocation(Vector3 playerPos)
     {
         if (!MogulNetwork.IsHost) return;
@@ -122,9 +140,11 @@ public static class CustomerManager
                 if (kvp.Value.LocationId == location.Id && kvp.Value.State != CustomerState.Leaving)
                     queueIdx++;
 
+            var customerComp = npc.gameObject.GetComponent<Customer>();
             var entry = new CustomerEntry
             {
                 Npc = npc,
+                CustomerComp = customerComp,
                 LocationId = location.Id,
                 NavBuilder = navBuilder,
                 State = CustomerState.WalkingIn,
@@ -132,7 +152,7 @@ public static class CustomerManager
                 StateEnteredAt = Time.time,
                 LastSamplePos = npc.transform.position,
                 LastSampleTime = Time.time,
-                Preferences = CustomerDemand.GeneratePreferences(npc.gameObject.GetInstanceID()),
+                Preferences = CustomerDemand.GeneratePreferences(npc.gameObject.GetInstanceID(), customerComp),
             };
             _active[npc] = entry;
 
@@ -310,7 +330,7 @@ public static class CustomerManager
             if (hovered == counterInteractable && eDown)
             {
                 if (LocationSpawner.TryGetSpawnedBuilding(location.Id, out var buildingRoot))
-                    CheckoutHandler.Open(location.Id, waiting.Npc, buildingRoot, waiting.Order ?? new List<SelectedProduct>());
+                    CheckoutHandler.Open(location.Id, waiting.Npc, buildingRoot, waiting.Order ?? []);
             }
         }
     }
@@ -519,12 +539,12 @@ public static class CustomerManager
         if (_scheduledRespawns.Count == 0) return;
         for (int i = _scheduledRespawns.Count - 1; i >= 0; i--)
         {
-            var item = _scheduledRespawns[i];
-            if (Time.time < item.deadline) continue;
+            var (locationId, deadline) = _scheduledRespawns[i];
+            if (Time.time < deadline) continue;
             _scheduledRespawns.RemoveAt(i);
-            if (_respawnsInFlight.TryGetValue(item.locationId, out int n) && n > 0)
-                _respawnsInFlight[item.locationId] = n - 1;
-            var location = PropertySystem.Find(item.locationId);
+            if (_respawnsInFlight.TryGetValue(locationId, out int n) && n > 0)
+                _respawnsInFlight[locationId] = n - 1;
+            var location = PropertySystem.Find(locationId);
             if (location == null) continue;
             SpawnForLocation(location);
         }

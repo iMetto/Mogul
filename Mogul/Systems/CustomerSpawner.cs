@@ -5,7 +5,9 @@ using Il2CppScheduleOne.AvatarFramework;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Employees;
 using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.NPCs.Behaviour;
+using Il2CppScheduleOne.Product;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.AI;
@@ -117,6 +119,11 @@ public static class CustomerSpawner
         // Remove from auto-registered list — we manage lifecycle
         NPCManager.NPCRegistry?.Remove(npc);
 
+        // Add Customer component while inactive so S1API can wrap it after network spawn
+        var customerComp = clone.AddComponent<Customer>();
+        customerComp.enabled = true;
+        AssignCustomerData(customerComp, id);
+
         // Apply appearance before activation
         ApplyAppearance(npc, id);
 
@@ -142,6 +149,47 @@ public static class CustomerSpawner
 
         MelonLogger.Msg($"[Mogul] Spawned customer {id} at {worldPos}");
         onSpawned?.Invoke(npc);
+    }
+
+    private static void AssignCustomerData(Customer customerComp, int seed)
+    {
+        var rng = new System.Random(unchecked(seed ^ Environment.TickCount));
+
+        // Walk-in crowd skews toward lower tiers; Phase 2 will weight this by player reach
+        int roll = rng.Next(10);
+        var standard = roll < 2 ? ECustomerStandard.VeryLow
+                     : roll < 5 ? ECustomerStandard.Low
+                     : roll < 8 ? ECustomerStandard.Moderate
+                     : roll < 9 ? ECustomerStandard.High
+                                : ECustomerStandard.VeryHigh;
+
+        (float min, float max) weeklySpend = standard switch
+        {
+            ECustomerStandard.VeryLow  => (160f,  300f),
+            ECustomerStandard.Low      => (300f,  600f),
+            ECustomerStandard.Moderate => (600f,  1000f),
+            ECustomerStandard.High     => (1000f, 1800f),
+            _                          => (1800f, 3000f),
+        };
+
+        var data = ScriptableObject.CreateInstance<CustomerData>();
+        data.Standards       = standard;
+        data.MinWeeklySpend  = weeklySpend.min;
+        data.MaxWeeklySpend  = weeklySpend.max;
+        data.MinOrdersPerWeek = 1;
+        data.MaxOrdersPerWeek = 3;
+
+        data.DefaultAffinityData = new CustomerAffinityData();
+        foreach (EDrugType dt in System.Enum.GetValues(typeof(EDrugType)))
+        {
+            data.DefaultAffinityData.ProductAffinities.Add(new ProductTypeAffinity
+            {
+                DrugType = dt,
+                Affinity = (float)(rng.NextDouble() * 2.0 - 1.0),
+            });
+        }
+
+        customerComp.customerData = data;
     }
 
     // Pool data (paths verified in vanilla via OTC reference). All entries excluded

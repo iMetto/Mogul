@@ -19,6 +19,7 @@ public class Core : MelonMod
         LocationSpawner.Initialize();
         SellDesk.Initialize();
         CustomerManager.Initialize();
+        BuildingPreview.RegisterConsoleCommands();
     }
 
     public override void OnSceneWasInitialized(int buildIndex, string sceneName)

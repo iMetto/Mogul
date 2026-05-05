@@ -27,7 +27,7 @@ Each `MogulLocation` carries all its own data:
 
 Decompiled source for all referenced libraries lives in `assembly/`:
 - `assembly/S1MAPI_Il2Cpp/` — BuildingBuilder, PrefabPlacer, PrefabRef, Prefabs, NavigationBuilder, Materials
-- `assembly/S1API.Il2Cpp.MelonLoader/` — GameLifecycle, Player, Money
+- `assembly/S1API.Il2Cpp.MelonLoader-1/` — GameLifecycle, Player, Money (ifBars/S1API fork)
 - `assembly/Assembly-CSharp/` — game internals (DoorController, SaveManager, etc.)
 - `assembly/Il2CppScheduleOne.Core/` — core game types
 - `assembly/SteamNetworkLib-IL2Cpp/` — SteamNetworkClient, HostSyncVar
