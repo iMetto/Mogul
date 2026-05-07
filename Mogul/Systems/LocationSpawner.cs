@@ -59,10 +59,12 @@ public static class LocationSpawner
 
             if (ov != null)
             {
-                if (ov.BaseMolding   == true) builder.AddBaseMolding();
-                if (ov.CornerPillars == true) builder.AddCornerPillars();
-                if (ov.CornerTrim    == true) builder.AddCornerTrim();
-                if (ov.RoofTrim      == true) builder.AddRoofTrim();
+                if (ov.BaseMolding       == true) builder.AddBaseMolding();
+                if (ov.CornerPillars     == true) builder.AddCornerPillars();
+                if (ov.CornerTrim        == true) builder.AddCornerTrim();
+                if (ov.RoofTrim          == true) builder.AddRoofTrim();
+                if (ov.SecondaryRoofTrim == true) builder.AddSecondaryRoofTrim();
+                if (ov.AmbientLighting   == true) builder.AddAmbientLighting();
             }
 
             builder
@@ -166,9 +168,18 @@ public static class LocationSpawner
             WallMaterial    = ov.WallMaterialName != null
                               ? () => Materials.Find(ov.WallMaterialName)
                               : design.WallMaterial,
-            FloorMaterial   = design.FloorMaterial,
-            CeilingMaterial = design.CeilingMaterial,
-            TrimMaterial    = design.TrimMaterial,
+            FloorMaterial   = ov.FloorMaterialName != null
+                              ? () => Materials.Find(ov.FloorMaterialName)
+                              : design.FloorMaterial,
+            CeilingMaterial = ov.CeilingMaterialName != null
+                              ? () => Materials.Find(ov.CeilingMaterialName)
+                              : design.CeilingMaterial,
+            TrimMaterial    = ov.TrimMaterialName != null
+                              ? () => Materials.Find(ov.TrimMaterialName)
+                              : design.TrimMaterial,
+            RoofMaterial    = ov.RoofMaterialName != null
+                              ? () => Materials.Find(ov.RoofMaterialName)
+                              : design.RoofMaterial,
             HipRoof         = ov.RoofStyle == "hip"                     ? true
                             : ov.RoofStyle is "parapet" or "flat"        ? false
                             : design.HipRoof,
@@ -176,7 +187,7 @@ public static class LocationSpawner
                             : ov.RoofStyle is "hip" or "flat"            ? false
                             : design.ParapetRoof,
             LightColor      = ov.LightColor ?? design.LightColor,
-            LightIntensity  = design.LightIntensity,
+            LightIntensity  = ov.LightIntensity ?? design.LightIntensity,
             WindowOppositeOfDoor = design.WindowOppositeOfDoor,
             PlaceFurniture  = design.PlaceFurniture,
         };

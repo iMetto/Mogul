@@ -152,7 +152,7 @@ public static class CustomerManager
                 StateEnteredAt = Time.time,
                 LastSamplePos = npc.transform.position,
                 LastSampleTime = Time.time,
-                Preferences = CustomerDemand.GeneratePreferences(npc.gameObject.GetInstanceID(), customerComp),
+                Preferences = CustomerDemand.GeneratePreferences(npc.gameObject.GetInstanceID()),
             };
             _active[npc] = entry;
 

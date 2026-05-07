@@ -4,8 +4,6 @@ using Il2CppScheduleOne.Storage;
 using MelonLoader;
 using Mogul.Data;
 using S1MAPI.Building.Components;
-using S1MAPI.Building.Config;
-using S1MAPI.Building.Interior;
 using S1MAPI.Building.Structural;
 using S1MAPI.S1;
 using UnityEngine;
@@ -92,13 +90,17 @@ public static class SellDesk
         foreach (var location in PropertySystem.Catalog)
         {
             if (!PropertySystem.IsOwned(location.Id)) continue;
-            if (_spawned.ContainsKey(location.Id)) continue;
+
+            // If we have an entry but the counter GO was destroyed externally (e.g. building
+            // rebuild), clear the stale entry so SpawnDesk runs again.
+            if (_spawned.TryGetValue(location.Id, out var existing))
+            {
+                if (existing.Counter != null) continue;
+                _spawned.Remove(location.Id);
+            }
 
             if (!LocationSpawner.TryGetSpawnedBuilding(location.Id, out var buildingRoot))
-            {
-                // Building may not have spawned yet. Next data change or manual sync can catch it.
                 continue;
-            }
 
             SpawnDesk(location, buildingRoot);
         }
@@ -114,109 +116,99 @@ public static class SellDesk
 
         float w = location.RoomSize.x;
         float d = location.RoomSize.z;
-
         const float wallOffset = 1.5f;
 
         return location.Door switch
         {
-            // Door on east wall, desk goes near west wall, faces east (+X).
-            WallSide.East => (
-                new Vector3(wallOffset, 0f, d / 2f),
-                Quaternion.Euler(0f, 90f, 0f)
-            ),
-
-            // Door on west wall, desk goes near east wall, faces west (-X).
-            WallSide.West => (
-                new Vector3(w - wallOffset, 0f, d / 2f),
-                Quaternion.Euler(0f, 270f, 0f)
-            ),
-
-            // Door on north wall, desk goes near south wall, faces north (+Z).
-            WallSide.North => (
-                new Vector3(w / 2f, 0f, wallOffset),
-                Quaternion.Euler(0f, 0f, 0f)
-            ),
-
-            // Door on south wall, desk goes near north wall, faces south (-Z).
-            WallSide.South => (
-                new Vector3(w / 2f, 0f, d - wallOffset),
-                Quaternion.Euler(0f, 180f, 0f)
-            ),
-
-            _ => (
-                new Vector3(w / 2f, 0f, wallOffset),
-                Quaternion.identity
-            ),
+            WallSide.East  => (new Vector3(wallOffset, 0f, d / 2f),       Quaternion.Euler(0f, 90f,  0f)),
+            WallSide.West  => (new Vector3(w - wallOffset, 0f, d / 2f),   Quaternion.Euler(0f, 270f, 0f)),
+            WallSide.North => (new Vector3(w / 2f, 0f, wallOffset),       Quaternion.Euler(0f, 0f,   0f)),
+            WallSide.South => (new Vector3(w / 2f, 0f, d - wallOffset),   Quaternion.Euler(0f, 180f, 0f)),
+            _              => (new Vector3(w / 2f, 0f, wallOffset),       Quaternion.identity),
         };
     }
 
     private static Quaternion RotationFacingDoor(WallSide door) => door switch
     {
-        WallSide.East => Quaternion.Euler(0f, 90f, 0f),
-        WallSide.West => Quaternion.Euler(0f, 270f, 0f),
-        WallSide.North => Quaternion.Euler(0f, 0f, 0f),
+        WallSide.East  => Quaternion.Euler(0f, 90f,  0f),
+        WallSide.West  => Quaternion.Euler(0f, 270f, 0f),
+        WallSide.North => Quaternion.Euler(0f, 0f,   0f),
         WallSide.South => Quaternion.Euler(0f, 180f, 0f),
-        _ => Quaternion.identity,
+        _              => Quaternion.identity,
     };
 
     private static void SpawnDesk(MogulLocation location, GameObject buildingRoot)
     {
+        if (!MogulNetwork.IsHost) return;
+
         try
         {
             var (position, rotation) = ComputeDeskTransform(location);
-
-            var color = new Color(0.18f, 0.18f, 0.18f);
-
-            var palette = new BuildingPalette();
-            var furnitureBuilder = new FurnitureBuilder(buildingRoot.transform, palette);
-            // Create at identity so PrimitiveBuilder's SetParent(worldPositionStays:true) gives
-            // children localRotation=identity. Rotate folder afterward so children inherit it.
-            var counter = furnitureBuilder.Create(FurnitureType.Counter, position, Quaternion.identity, color);
-            counter.transform.localRotation = rotation;
-            counter.name = "Mogul_SellDesk_Counter_" + location.Id;
-
-            var queueAnchor = position + (rotation * Vector3.forward * 0.3f);
-
-            var instance = new SellDeskInstance { Counter = counter, QueueAnchor = queueAnchor };
-            _spawned[location.Id] = instance;
-
-            var counterInteractable = counter.GetComponentInChildren<InteractableObject>(true);
-            if (counterInteractable == null)
-            {
-                counterInteractable = counter.AddComponent<InteractableObject>();
-                var col = counter.GetComponent<Collider>() ?? counter.GetComponentInChildren<Collider>(true);
-                if (col != null) counterInteractable.displayLocationCollider = col;
-            }
-            counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-            instance.CounterInteractable = counterInteractable;
-
-            var regPlacer = new PrefabPlacer(counter.transform);
             var locId = location.Id;
-            regPlacer.Place(Prefabs.CashRegister,
-                new Vector3(0f, 0.95f, 0f),
-                Quaternion.identity,
+
+            MelonLogger.Msg($"[Mogul] SpawnDesk: {locId} pos={position} rot={rotation.eulerAngles}");
+
+            var instance = new SellDeskInstance { QueueAnchor = position + (rotation * Vector3.forward * 0.3f) };
+            _spawned[locId] = instance;
+
+            // Counter surface — MetalSquareTable as the base (non-networked, child of building root).
+            // Sits at desk position, register goes on top.
+            var placer = new PrefabPlacer(buildingRoot.transform);
+            placer.Place(Prefabs.MetalSquareTable, position, rotation,
                 networked: false,
-                onReady: regGo =>
+                onReady: counterGo =>
                 {
-                    if (regGo == null)
+                    if (counterGo == null)
                     {
-                        MelonLogger.Warning($"[Mogul] CashRegister prefab not ready for {locId}");
+                        MelonLogger.Warning($"[Mogul] Counter table prefab not ready for {locId}");
                         return;
                     }
-                    regGo.name = "Mogul_CashRegister_" + locId;
-                    var interactable = regGo.AddComponent<InteractableObject>();
-                    interactable.displayLocationCollider = regGo.GetComponent<Collider>()
-                                                        ?? regGo.GetComponentInChildren<Collider>(true);
-                    interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-                    if (_spawned.TryGetValue(locId, out var inst2))
+                    counterGo.name = "Mogul_Counter_" + locId;
+                    if (_spawned.TryGetValue(locId, out var inst)) inst.Counter = counterGo;
+
+                    // InteractableObject on the table itself (for the "Take order" prompt).
+                    var counterInteractable = counterGo.GetComponentInChildren<InteractableObject>(true);
+                    if (counterInteractable == null)
                     {
-                        inst2.RegisterInteractable = interactable;
-                        inst2.Register = regGo;
+                        counterInteractable = counterGo.AddComponent<InteractableObject>();
+                        var col = counterGo.GetComponent<Collider>() ?? counterGo.GetComponentInChildren<Collider>(true);
+                        if (col != null) counterInteractable.displayLocationCollider = col;
                     }
-                    MelonLogger.Msg($"[Mogul] Cash register placed for {locId}");
+                    counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+                    if (_spawned.TryGetValue(locId, out var inst2)) inst2.CounterInteractable = counterInteractable;
+
+                    MelonLogger.Msg($"[Mogul] Counter table ready for {locId}");
+
+                    // Cash register on top of the table. MetalSquareTable is ~0.75m tall.
+                    // Networked so it survives save/load properly.
+                    var regPlacer = new PrefabPlacer(counterGo.transform);
+                    regPlacer.Place(Prefabs.CashRegister,
+                        new Vector3(0f, 0.8f, 0f),
+                        Quaternion.identity,
+                        networked: true,
+                        onReady: regGo =>
+                        {
+                            if (regGo == null)
+                            {
+                                MelonLogger.Warning($"[Mogul] CashRegister prefab not ready for {locId}");
+                                return;
+                            }
+                            regGo.name = "Mogul_CashRegister_" + locId;
+                            var interactable = regGo.GetComponent<InteractableObject>()
+                                            ?? regGo.AddComponent<InteractableObject>();
+                            interactable.displayLocationCollider = regGo.GetComponent<Collider>()
+                                                                ?? regGo.GetComponentInChildren<Collider>(true);
+                            interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+                            if (_spawned.TryGetValue(locId, out var inst3))
+                            {
+                                inst3.RegisterInteractable = interactable;
+                                inst3.Register = regGo;
+                            }
+                            MelonLogger.Msg($"[Mogul] Cash register ready for {locId}");
+                        });
                 });
 
-            MelonLogger.Msg($"[Mogul] Sell desk spawned for {location.Id}. Desk={position}, QueueAnchor={queueAnchor}");
+            MelonLogger.Msg($"[Mogul] SpawnDesk placement requested for {locId}. QueueAnchor={instance.QueueAnchor}");
         }
         catch (Exception ex)
         {

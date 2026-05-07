@@ -13,13 +13,20 @@ namespace Mogul.Systems;
 public class BuildingOverrides
 {
     public string WallMaterialName;
-    public string RoofStyle;       // "hip" | "parapet" | "flat" | null (keep design default)
-    public string DoorPrefabKey;   // "classical" | "sliding" | "glass" | "metalglass" | "industrial" | "industrialpeep" | "base"
+    public string FloorMaterialName;
+    public string CeilingMaterialName;
+    public string RoofMaterialName;
+    public string TrimMaterialName;     // door frames
+    public string RoofStyle;            // "hip" | "parapet" | "flat" | null
+    public string DoorPrefabKey;        // "classical" | "sliding" | "slidingglass" | "metalglass" | "industrial" | "industrialpeep" | "base"
     public bool?  BaseMolding;
     public bool?  CornerPillars;
     public bool?  CornerTrim;
     public bool?  RoofTrim;
+    public bool?  SecondaryRoofTrim;
+    public bool?  AmbientLighting;
     public Color? LightColor;
+    public float? LightIntensity;       // 0.5 dim → 2.0 max
 }
 
 public static class BuildingPreview
@@ -53,13 +60,11 @@ public static class BuildingPreview
 
     public static readonly string[] WallMaterials =
     {
-        "dark grey concrete", "concrete light beige", "concrete_grey0",
-        "brick red", "brick_brick_colored",
-        "off white", "small tile dirty white",
-        "tiles_black", "tiles_darkgrey",
-        "metal_verydarkgrey_mat", "metal_medgrey", "metal_lightgrey", "metal_white",
-        "wood planks medium brown mat", "wood_planks_light_brown", "wood_planks_white",
-        "fabric_white", "fabric_red", "fabric_blue",
+        "brick brick colored", "concrete light grey", "dark grey concrete",
+        "off white", "small tile dirty white", "tiles_darkgrey",
+        "metal_verydarkgrey_mat", "metal_mediumgrey_mat", "metal_lightgrey_mat", "metal white",
+        "wood planks medium brown mat", "wood planks light brown mat", "wood planks white",
+        "fabric white", "fabric red", "fabric blue", "fabric green", "fabric denim", "fabric brown", "fabric black",
     };
 
     public static void RegisterConsoleCommands()

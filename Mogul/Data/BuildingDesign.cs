@@ -16,6 +16,7 @@ public class BuildingDesign
     public Func<Material> FloorMaterial { get; init; }
     public Func<Material> CeilingMaterial { get; init; }
     public Func<Material> TrimMaterial { get; init; }
+    public Func<Material> RoofMaterial { get; init; }
 
     public bool HipRoof { get; init; }
     public bool ParapetRoof { get; init; }
@@ -60,8 +61,9 @@ public class BuildingDesign
             .AddDoorFrames(TrimMaterial?.Invoke())
             .AddLights(intensity: LightIntensity, color: LightColor);
 
-        if (HipRoof) builder.AddHipRoof();
-        if (ParapetRoof) builder.AddParapetRoof();
+        var roofMat = RoofMaterial?.Invoke();
+        if (HipRoof)     builder.AddHipRoof(roofMaterial: roofMat);
+        if (ParapetRoof) builder.AddParapetRoof(parapetMaterial: roofMat);
 
         PlaceFurniture?.Invoke(builder, location);
     }

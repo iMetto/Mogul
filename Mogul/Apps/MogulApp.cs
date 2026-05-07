@@ -30,6 +30,7 @@ public class MogulApp : PhoneApp
     private GameObject _pickerPanel;
     private string _pendingLocationId;
     private string _selectedDesignId;
+    private Text _reachText;
 
     protected override void OnCreatedUI(GameObject container)
     {
@@ -48,7 +49,7 @@ public class MogulApp : PhoneApp
             _pickerPanel.SetActive(false);
             BuildPickerPanel();
             BuildPropertiesPanel();
-            MogulNetwork.OnDataChanged += _ => RefreshPropertiesPanel();
+            MogulNetwork.OnDataChanged += _ => { RefreshHeader(); RefreshPropertiesPanel(); };
         }
         catch (Exception ex)
         {
@@ -88,15 +89,28 @@ public class MogulApp : PhoneApp
         tr.anchorMax = new Vector2(0.5f, 1f);
         tr.sizeDelta = Vector2.zero;
 
-        var reach = MakeText(header, "Reach", "REACH  " + MogulNetwork.Data.Reach);
-        var reachText = reach.GetComponent<Text>();
-        reachText.fontSize = 15;
-        reachText.color = ColorMuted;
-        reachText.alignment = TextAnchor.MiddleRight;
+        var reach = MakeText(header, "Reach", BuildReachLabel());
+        _reachText = reach.GetComponent<Text>();
+        _reachText.fontSize = 15;
+        _reachText.color = ColorMuted;
+        _reachText.alignment = TextAnchor.MiddleRight;
         var rr = reach.GetComponent<RectTransform>();
         rr.anchorMin = new Vector2(0.5f, 0f);
         rr.anchorMax = new Vector2(0.97f, 1f);
         rr.sizeDelta = Vector2.zero;
+    }
+
+    private static string BuildReachLabel()
+    {
+        int reach = MogulNetwork.Data.Reach;
+        var tier  = ReachSystem.GetTier(reach);
+        return $"REACH  {ReachSystem.FormatReach(reach)}  ·  {ReachSystem.GetTierName(tier).ToUpper()}";
+    }
+
+    private void RefreshHeader()
+    {
+        if (_reachText != null)
+            _reachText.text = BuildReachLabel();
     }
 
     private void BuildPropertiesPanel()

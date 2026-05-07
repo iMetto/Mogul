@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.Product;
 using UnityEngine;
 
@@ -10,9 +9,9 @@ public enum RejectionReason { None, EmptyShelves, TooExpensive, LowAppeal }
 public struct CustomerPreferences
 {
     public float QualityExpectation; // 0.0–0.75, skewed low
-    public float MaxBudgetPerItem;   // per-package hard price ceiling
-    public float TotalBudget;        // total to spend this visit
-    public float WeedAffinity;          // fixed 0.8 for walk-ins
+    public float MaxBudgetPerItem;   // per-package hard price ceiling (60% of TotalBudget)
+    public float TotalBudget;        // total available this visit (before visit commitment)
+    public float WeedAffinity;       // fixed 0.8 for walk-ins
     public string[] PreferredEffectIds; // 3 lowercased ScriptableObject names
 }
 
@@ -21,7 +20,7 @@ public class SelectedProduct
     public string ProductId;
     public string DisplayName;
     public int    QualityLevel; // 0=Trash … 4=Heavenly
-    public float  Price;        // per-package (MarketValue for Phase 1)
+    public float  Price;        // per-package
     public int    Quantity;     // packages requested
     public float  EnjoyScale;   // Lerp(0.66, 1.5, appeal) — base for tip in Phase 2
 
@@ -46,54 +45,27 @@ public static class CustomerDemand
         "spicy", "thoughtprovoking", "toxic", "tropicthunder", "zombifying"
     };
 
-    public static CustomerPreferences GeneratePreferences(int seed, Customer customerComp = null)
+    // Below this appeal score the NPC won't buy anything — nothing in the store
+    // is close enough to what they want.
+    private const float MinAppealToStay = 0.15f;
+
+    public static CustomerPreferences GeneratePreferences(int seed)
     {
         var rng = new System.Random(seed);
-        var data = customerComp?.customerData;
 
+        // Quality expectation — weighted toward low taste (generic walk-ins)
         float qualityExp;
-        if (data != null)
-        {
-            // Map Standards → quality expectation using the same scale as EQuality (0–4 × 0.25)
-            int qualLevel = (int)data.Standards.GetCorrespondingQuality();
-            qualityExp = Mathf.Clamp(qualLevel * 0.25f + (float)(rng.NextDouble() - 0.5) * 0.08f, 0f, 1f);
-        }
-        else
-        {
-            double roll = rng.NextDouble();
-            if      (roll < 0.30) qualityExp = (float)(rng.NextDouble() * 0.12);
-            else if (roll < 0.65) qualityExp = 0.13f + (float)(rng.NextDouble() * 0.17);
-            else if (roll < 0.90) qualityExp = 0.31f + (float)(rng.NextDouble() * 0.24);
-            else                  qualityExp = 0.56f + (float)(rng.NextDouble() * 0.19);
-        }
+        double roll = rng.NextDouble();
+        if      (roll < 0.30) qualityExp = (float)(rng.NextDouble() * 0.12);
+        else if (roll < 0.65) qualityExp = 0.13f + (float)(rng.NextDouble() * 0.17);
+        else if (roll < 0.90) qualityExp = 0.31f + (float)(rng.NextDouble() * 0.24);
+        else                  qualityExp = 0.56f + (float)(rng.NextDouble() * 0.19);
 
-        float budget;
-        if (data != null && data.MaxWeeklySpend > 0f)
-        {
-            int ordersPerWeek = System.Math.Max(1, (data.MinOrdersPerWeek + data.MaxOrdersPerWeek) / 2);
-            float visitMin = data.MinWeeklySpend / ordersPerWeek;
-            float visitMax = data.MaxWeeklySpend / ordersPerWeek;
-            budget = visitMin + (float)(rng.NextDouble() * (visitMax - visitMin));
-        }
-        else
-        {
-            budget = 50f + (float)(rng.NextDouble() * 150f);
-        }
-
-        float weedAffinity = 0.8f;
-        if (data?.DefaultAffinityData?.ProductAffinities != null)
-        {
-            var affinities = data.DefaultAffinityData.ProductAffinities;
-            for (int i = 0; i < affinities.Count; i++)
-            {
-                var pa = affinities[i];
-                if (pa != null && pa.DrugType == EDrugType.Marijuana)
-                {
-                    weedAffinity = Mathf.InverseLerp(-1f, 1f, pa.Affinity);
-                    break;
-                }
-            }
-        }
+        // Budget derived from current store reach tier.
+        // 20% of walk-ins are outliers and roll from the upper band.
+        var tier = ReachSystem.GetTier(MogulNetwork.Data.Reach);
+        var (budgetMin, budgetMax) = ReachSystem.GetBudgetRange(tier, rng);
+        float budget = budgetMin + (float)(rng.NextDouble() * (budgetMax - budgetMin));
 
         // Fisher-Yates partial shuffle to pick 3 effect IDs
         var pool = new string[EffectPool.Length];
@@ -109,14 +81,11 @@ public static class CustomerDemand
             QualityExpectation = qualityExp,
             MaxBudgetPerItem   = budget * 0.6f,
             TotalBudget        = budget,
-            WeedAffinity       = weedAffinity,
+            WeedAffinity       = 0.8f,
             PreferredEffectIds = new[] { pool[0], pool[1], pool[2] },
         };
     }
 
-    // Scores available stock against customer preferences and returns what the customer
-    // decided to buy. stock is package-granularity (from StorageScanner.Scan).
-    // seed is the same seed used for GeneratePreferences so randomness is consistent.
     public static (List<SelectedProduct> selected, RejectionReason rejection) DecidePurchases(
         CustomerPreferences prefs, List<StorageProduct> stock, int seed)
     {
@@ -151,20 +120,33 @@ public static class CustomerDemand
 
         scored.Sort((a, b) => b.appeal.CompareTo(a.appeal));
 
-        var   rng       = new System.Random(seed ^ 0x4A2F);
-        float remaining = prefs.TotalBudget;
-        var   selected  = new List<SelectedProduct>();
+        // If the best available product doesn't meet minimum appeal, the NPC walks out.
+        float bestAppeal = scored[0].appeal;
+        if (bestAppeal < MinAppealToStay)
+            return (new List<SelectedProduct>(), RejectionReason.LowAppeal);
+
+        // How much of their budget they commit this visit scales with how much they like
+        // what's on offer: 25% at the minimum threshold, 100% when appeal is great.
+        float visitFraction = Mathf.InverseLerp(MinAppealToStay, 0.80f, bestAppeal);
+        float remaining     = prefs.TotalBudget * Mathf.Lerp(0.25f, 1.0f, visitFraction);
+
+        var   rng      = new System.Random(seed ^ 0x4A2F);
+        var   selected = new List<SelectedProduct>();
 
         while (scored.Count > 0 && remaining >= scored[0].prod.Price)
         {
-            // 50% pick top-ranked, 50% random — mirrors OTC selection loop
             int pick = rng.NextDouble() < 0.5 ? 0 : rng.Next(0, scored.Count);
             var (prod, appeal) = scored[pick];
             scored.RemoveAt(pick);
 
             float enjoyScale = Mathf.Lerp(0.66f, 1.5f, appeal);
-            int   qty        = Mathf.RoundToInt(remaining * enjoyScale / prod.Price);
-            qty = Mathf.Clamp(qty, 1, prod.TotalPackages);
+
+            // How much of the remaining budget to spend on this item (30–85%).
+            // Capped at remaining/price so we never exceed the committed budget.
+            float itemFraction = Mathf.Lerp(0.30f, 0.85f, appeal);
+            int   maxAffordable = Mathf.FloorToInt(remaining / prod.Price);
+            int   qty = Mathf.Max(1, Mathf.FloorToInt(remaining * itemFraction / prod.Price));
+            qty = Mathf.Clamp(qty, 1, Mathf.Min(prod.TotalPackages, maxAffordable));
 
             selected.Add(new SelectedProduct
             {
