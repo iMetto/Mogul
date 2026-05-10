@@ -48,6 +48,18 @@
     </Reference>
   </ItemGroup>
 
+  <!-- Embedded resources (GLB art, textures) -->
+  <ItemGroup>
+    <None Remove="Resources\cashregister_cashdrawer.glb" />
+    <EmbeddedResource Include="Resources\cashregister_cashdrawer.glb" Condition="Exists('Resources\cashregister_cashdrawer.glb')">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <None Remove="Resources\Counter.glb" />
+    <EmbeddedResource Include="Resources\Counter.glb" Condition="Exists('Resources\Counter.glb')">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <!-- Game assemblies (IL2CPP-generated stubs) -->
   <ItemGroup>
     <Reference Include="Il2Cppcom.rlabrecque.steamworks.net">

@@ -5,6 +5,7 @@ using Il2CppSteamworks;
 using MelonLoader;
 using Mogul.Data;
 using Newtonsoft.Json;
+using S1API.Money;
 using SteamNetworkLib;
 using SteamNetworkLib.Sync;
 
@@ -56,6 +57,7 @@ public static class MogulNetwork
             _client.OnLobbyLeft += (_, _) => _syncVar = null;
             _client.RegisterMessageHandler<MogulActionMessage>(OnClientAction);
             _client.RegisterMessageHandler<MogulSyncMessage>(OnSyncReceived);
+            _client.RegisterMessageHandler<MogulRegisterPayoutMessage>(OnRegisterPayout);
             MelonLogger.Msg("[Mogul] SteamNetworkClient initialized.");
         }
         catch (Exception ex)
@@ -80,6 +82,16 @@ public static class MogulNetwork
             _client?.BroadcastMessage(new MogulActionMessage { Action = action, Payload = payload });
     }
 
+    // Anyone can press R on a register; cash goes to whoever pressed it.
+    // Host is authoritative on the balance — if zero by the time the host applies, nothing pays.
+    public static void RequestCollectRegister(string locationId)
+    {
+        if (IsHost)
+            ApplyCollect(locationId, _client?.LocalPlayerId ?? CSteamID.Nil);
+        else
+            _client?.BroadcastMessage(new MogulActionMessage { Action = MogulActions.CollectRegister, Payload = locationId });
+    }
+
     private static void OnJoinedLobby()
     {
         _syncVar = _client.CreateHostSyncVar("mogul_save", _localData);
@@ -96,10 +108,54 @@ public static class MogulNetwork
         }
     }
 
-    private static void OnClientAction(MogulActionMessage msg, CSteamID _)
+    private static void OnClientAction(MogulActionMessage msg, CSteamID sender)
     {
         if (!IsHost) return;
+        if (msg.Action == MogulActions.CollectRegister)
+        {
+            ApplyCollect(msg.Payload, sender);
+            return;
+        }
         ApplyAction(msg.Action, msg.Payload);
+    }
+
+    // Host -> client targeted message. Only the requester gets credited so collecting is fair.
+    private static void OnRegisterPayout(MogulRegisterPayoutMessage msg, CSteamID _)
+    {
+        if (msg.Amount <= 0f) return;
+        Money.ChangeCashBalance(msg.Amount, visualizeChange: true, playCashSound: true);
+        MelonLogger.Msg($"[Mogul] Collected ${msg.Amount:F2} from {msg.LocationId} (host-paid)");
+    }
+
+    // Host-side: validate balance, zero it, sync, then either pay locally (if host pressed R)
+    // or P2P-message the requesting client so only they get the cash.
+    private static void ApplyCollect(string locationId, CSteamID requester)
+    {
+        if (!IsHost) return;
+        if (string.IsNullOrEmpty(locationId)) return;
+        if (!_localData.RegisterBalances.TryGetValue(locationId, out var balance) || balance <= 0f) return;
+
+        _localData.RegisterBalances[locationId] = 0f;
+        Commit();
+
+        bool requesterIsHost = _client == null
+            || requester == CSteamID.Nil
+            || requester == _client.LocalPlayerId;
+
+        if (requesterIsHost)
+        {
+            Money.ChangeCashBalance(balance, visualizeChange: true, playCashSound: true);
+            MelonLogger.Msg($"[Mogul] Collected ${balance:F2} from {locationId}");
+        }
+        else
+        {
+            _client.SendMessageToPlayerAsync(requester, new MogulRegisterPayoutMessage
+            {
+                LocationId = locationId,
+                Amount = balance
+            });
+            MelonLogger.Msg($"[Mogul] Paid ${balance:F2} from {locationId} -> {requester}");
+        }
     }
 
     private static void OnSyncReceived(MogulSyncMessage msg, CSteamID _)
@@ -180,6 +236,24 @@ public static class MogulNetwork
                     changed = true;
                 }
                 break;
+
+            case MogulActions.AddRegisterSale:
+                {
+                    int sep = payload.IndexOf(':');
+                    if (sep > 0 && float.TryParse(payload.Substring(sep + 1),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out float amount) && amount > 0f)
+                    {
+                        string locId = payload.Substring(0, sep);
+                        if (!_localData.RegisterBalances.ContainsKey(locId))
+                            _localData.RegisterBalances[locId] = 0f;
+                        _localData.RegisterBalances[locId] += amount;
+                        MelonLogger.Msg($"[Mogul] Register +${amount:F2} for {locId} (pending: ${_localData.RegisterBalances[locId]:F2})");
+                        changed = true;
+                    }
+                    break;
+                }
         }
 
         if (changed)

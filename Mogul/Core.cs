@@ -1,9 +1,11 @@
+using System;
 using MelonLoader;
 using Mogul.Systems;
 using Mogul.UI;
 using UnityEngine.SceneManagement;
 using S1API.Entities;
 using UnityEngine;
+using Il2CppScheduleOne;
 
 [assembly: MelonInfo(typeof(Mogul.Core), "Mogul", "0.1.0", "imetto")]
 [assembly: MelonGame("TVGS", "Schedule I")]
@@ -38,6 +40,26 @@ public class Core : MelonMod
         }
     }
 
+    private void DumpFishNetPrefabs()
+    {
+        try
+        {
+            var nm = Il2CppFishNet.InstanceFinder.NetworkManager;
+            if (nm == null) { LoggerInstance.Msg("[Prefabs] NetworkManager null"); return; }
+            var po = nm.GetPrefabObjects<Il2CppFishNet.Managing.Object.PrefabObjects>(0, false);
+            if (po == null) { LoggerInstance.Msg("[Prefabs] PrefabObjects null"); return; }
+            int count = po.GetObjectCount();
+            LoggerInstance.Msg($"[Prefabs] {count} registered prefabs:");
+            for (int i = 0; i < count; i++)
+            {
+                var no = po.GetObject(true, i);
+                if (no?.gameObject != null)
+                    LoggerInstance.Msg($"[Prefabs]  [{i}] {no.gameObject.name}");
+            }
+        }
+        catch (Exception ex) { LoggerInstance.Msg($"[Prefabs] dump failed: {ex.Message}"); }
+    }
+
     public override void OnGUI()
     {
         CheckoutUI.Draw();
@@ -50,6 +72,13 @@ public class Core : MelonMod
         var playerPos = Player.Local?.Position;
         if (playerPos.HasValue)
             CustomerManager.Tick(playerPos.Value);
+
+        if (Input.GetKeyDown(KeyCode.F4))
+        {
+            MogulNetwork.RequestAction(MogulActions.PurchaseWithDesign, "loc_westville_01:industrial");
+            Il2CppScheduleOne.Console.SubmitCommand("teleport bungalow");
+            LoggerInstance.Msg("[Mogul] Debug: purchased loc_westville_01, teleporting to bungalow");
+        }
 
         if (Input.GetKeyDown(KeyCode.F7))
         {
@@ -91,6 +120,7 @@ public class Core : MelonMod
             if (pos.HasValue)
                 LoggerInstance.Msg($"[POS] X={pos.Value.x:F2}  Y={pos.Value.y:F2}  Z={pos.Value.z:F2}");
             MogulNetwork.DumpStoragePrefabs();
+            DumpFishNetPrefabs();
         }
 
         if (Input.GetKeyDown(KeyCode.F6))

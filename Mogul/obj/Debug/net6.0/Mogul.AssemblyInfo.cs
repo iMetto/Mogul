@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Mogul")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+739ce257bb200950dd8f62dd3b6e05110b60f268")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+793b6e4044ddbea32a69928e892e02dbd259330d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Mogul")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Mogul")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

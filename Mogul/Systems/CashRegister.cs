@@ -1,27 +1,24 @@
-using System.Collections.Generic;
 using Il2CppScheduleOne;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Interaction;
-using MelonLoader;
-using S1API.Money;
 using UnityEngine;
 
 namespace Mogul.Systems;
 
+// Cash register interaction surface. State lives in MogulNetwork.Data.RegisterBalances
+// (synced via HostSyncVar), so every client sees the same pending balance and any of
+// them can press R to collect — the host validates and credits the player who pressed.
 public static class CashRegister
 {
-    private static readonly Dictionary<string, float> _pending = new();
-
     public static void AddSale(string locationId, float amount)
     {
-        if (!_pending.ContainsKey(locationId))
-            _pending[locationId] = 0f;
-        _pending[locationId] += amount;
-        MelonLogger.Msg($"[Mogul] Register +${amount:F2} for {locationId} (pending: ${_pending[locationId]:F2})");
+        if (string.IsNullOrEmpty(locationId) || amount <= 0f) return;
+        var amountStr = amount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        MogulNetwork.RequestAction(MogulActions.AddRegisterSale, $"{locationId}:{amountStr}");
     }
 
     public static float GetPending(string locationId) =>
-        _pending.TryGetValue(locationId, out var v) ? v : 0f;
+        MogulNetwork.Data.RegisterBalances.TryGetValue(locationId, out var v) ? v : 0f;
 
     public static void Tick()
     {
@@ -43,10 +40,8 @@ public static class CashRegister
 
                 if (Input.GetKeyDown(KeyCode.R) && !GameInput.IsTyping)
                 {
-                    _pending[location.Id] = 0f;
-                    Money.ChangeCashBalance(balance, visualizeChange: true, playCashSound: true);
+                    MogulNetwork.RequestCollectRegister(location.Id);
                     interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-                    MelonLogger.Msg($"[Mogul] Collected ${balance:F2} from {location.Id}");
                 }
             }
             else if (balance > 0f)

@@ -1,10 +1,9 @@
+using System;
+using Mogul.Data;
+using Mogul.Systems;
 using S1API.PhoneApp;
 using UnityEngine;
 using UnityEngine.UI;
-using Mogul.Systems;
-using System;
-using Mogul.Data;
-using System.Collections.Generic;
 
 namespace Mogul.Apps;
 
@@ -16,40 +15,49 @@ public class MogulApp : PhoneApp
     protected override string IconFileName => "imetto-Mogul/mogul_icon.png";
     protected override EOrientation Orientation => EOrientation.Horizontal;
 
-    private static readonly Color ColorBg = new Color(0.04f, 0.04f, 0.04f, 1f);
-    private static readonly Color ColorHeader = new Color(0.07f, 0.07f, 0.07f, 1f);
-    private static readonly Color ColorRowEven = new Color(0.08f, 0.08f, 0.08f, 1f);
-    private static readonly Color ColorRowOdd = new Color(0.06f, 0.06f, 0.06f, 1f);
-    private static readonly Color ColorGold = new Color(0.82f, 0.67f, 0.16f, 1f);
-    private static readonly Color ColorOwned = new Color(0.13f, 0.13f, 0.13f, 1f);
-    private static readonly Color ColorMuted = new Color(0.38f, 0.38f, 0.38f, 1f);
-    private static readonly Color ColorDark  = new Color(0.05f, 0.05f, 0.05f, 1f);
+    private static readonly Color ColorBg       = new Color(0.04f, 0.04f, 0.04f, 1f);
+    private static readonly Color ColorHeader   = new Color(0.07f, 0.07f, 0.07f, 1f);
+    private static readonly Color ColorRow      = new Color(0.085f, 0.085f, 0.085f, 1f);
+    private static readonly Color ColorRowSel   = new Color(0.14f, 0.11f, 0.04f, 1f);
+    private static readonly Color ColorRowOwned = new Color(0.06f, 0.075f, 0.06f, 1f);
+    private static readonly Color ColorGold     = new Color(0.82f, 0.67f, 0.16f, 1f);
+    private static readonly Color ColorMuted    = new Color(0.45f, 0.45f, 0.45f, 1f);
+    private static readonly Color ColorDark     = new Color(0.05f, 0.05f, 0.05f, 1f);
+    private static readonly Color ColorAccent   = new Color(0.30f, 0.55f, 0.85f, 1f);
+
+    private enum View { List, Manage, Customize }
 
     private Font _font;
-    private GameObject _propertiesPanel;
-    private GameObject _pickerPanel;
-    private string _pendingLocationId;
-    private string _selectedDesignId;
+    private Text _titleText;
     private Text _reachText;
+    private GameObject _backButton;
+
+    private GameObject _listPanel;
+    private GameObject _managePanel;
+    private GameObject _customizePanel;
+    private RectTransform _listContent;
+
+    private View _currentView = View.List;
+    private string _selectedRowId;
+    private string _detailLocationId;
 
     protected override void OnCreatedUI(GameObject container)
     {
         try
         {
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
             BuildBackground(container);
             BuildHeader(container);
+            BuildListPanel(container);
+            BuildManagePanel(container);
+            BuildCustomizePanel(container);
 
-            _propertiesPanel = new GameObject("PropertiesPanel");
-            _propertiesPanel.transform.SetParent(container.transform, false);
-
-            _pickerPanel = new GameObject("PickerPanel");
-            _pickerPanel.transform.SetParent(container.transform, false);
-            _pickerPanel.SetActive(false);
-            BuildPickerPanel();
-            BuildPropertiesPanel();
-            MogulNetwork.OnDataChanged += _ => { RefreshHeader(); RefreshPropertiesPanel(); };
+            ShowView(View.List);
+            MogulNetwork.OnDataChanged += _ =>
+            {
+                RefreshHeader();
+                if (_currentView == View.List) RefreshList();
+            };
         }
         catch (Exception ex)
         {
@@ -74,29 +82,48 @@ public class MogulApp : PhoneApp
         header.transform.SetParent(container.transform, false);
         header.AddComponent<Image>().color = ColorHeader;
         var hr = header.GetComponent<RectTransform>();
-        hr.anchorMin = new Vector2(0f, 0.88f);
+        hr.anchorMin = new Vector2(0f, 0.9f);
         hr.anchorMax = new Vector2(1f, 1f);
         hr.sizeDelta = Vector2.zero;
 
+        _backButton = new GameObject("BackButton");
+        _backButton.transform.SetParent(header.transform, false);
+        var br = _backButton.AddComponent<RectTransform>();
+        br.anchorMin = new Vector2(0.012f, 0.2f);
+        br.anchorMax = new Vector2(0.06f, 0.8f);
+        br.sizeDelta = Vector2.zero;
+        _backButton.AddComponent<Image>().color = ColorRow;
+        _backButton.AddComponent<Button>().onClick.AddListener(new Action(() => ShowView(View.List)));
+        var backLabel = MakeText(_backButton, "Label", "<");
+        var backText = backLabel.GetComponent<Text>();
+        backText.fontSize = 22;
+        backText.fontStyle = FontStyle.Bold;
+        backText.color = ColorGold;
+        backText.alignment = TextAnchor.MiddleCenter;
+        var blr = backLabel.GetComponent<RectTransform>();
+        blr.anchorMin = Vector2.zero;
+        blr.anchorMax = Vector2.one;
+        blr.sizeDelta = Vector2.zero;
+
         var title = MakeText(header, "Title", "MOGUL");
-        var titleText = title.GetComponent<Text>();
-        titleText.fontSize = 26;
-        titleText.fontStyle = FontStyle.Bold;
-        titleText.color = ColorGold;
-        titleText.alignment = TextAnchor.MiddleLeft;
+        _titleText = title.GetComponent<Text>();
+        _titleText.fontSize = 22;
+        _titleText.fontStyle = FontStyle.Bold;
+        _titleText.color = ColorGold;
+        _titleText.alignment = TextAnchor.MiddleLeft;
         var tr = title.GetComponent<RectTransform>();
-        tr.anchorMin = new Vector2(0.03f, 0f);
-        tr.anchorMax = new Vector2(0.5f, 1f);
+        tr.anchorMin = new Vector2(0.08f, 0f);
+        tr.anchorMax = new Vector2(0.55f, 1f);
         tr.sizeDelta = Vector2.zero;
 
         var reach = MakeText(header, "Reach", BuildReachLabel());
         _reachText = reach.GetComponent<Text>();
-        _reachText.fontSize = 15;
+        _reachText.fontSize = 13;
         _reachText.color = ColorMuted;
         _reachText.alignment = TextAnchor.MiddleRight;
         var rr = reach.GetComponent<RectTransform>();
-        rr.anchorMin = new Vector2(0.5f, 0f);
-        rr.anchorMax = new Vector2(0.97f, 1f);
+        rr.anchorMin = new Vector2(0.55f, 0f);
+        rr.anchorMax = new Vector2(0.98f, 1f);
         rr.sizeDelta = Vector2.zero;
     }
 
@@ -109,253 +136,356 @@ public class MogulApp : PhoneApp
 
     private void RefreshHeader()
     {
-        if (_reachText != null)
-            _reachText.text = BuildReachLabel();
+        if (_reachText != null) _reachText.text = BuildReachLabel();
     }
 
-    private void BuildPropertiesPanel()
+    private void BuildListPanel(GameObject container)
     {
-        var r = _propertiesPanel.AddComponent<RectTransform>();
-        r.anchorMin = new Vector2(0f, 0f);
-        r.anchorMax = new Vector2(1f, 0.88f);
-        r.sizeDelta = Vector2.zero;
+        _listPanel = new GameObject("ListPanel");
+        _listPanel.transform.SetParent(container.transform, false);
+        var pr = _listPanel.AddComponent<RectTransform>();
+        pr.anchorMin = new Vector2(0f, 0f);
+        pr.anchorMax = new Vector2(1f, 0.9f);
+        pr.sizeDelta = Vector2.zero;
 
-        RefreshPropertiesPanel();
-    }
-    private void BuildPickerPanel()
-    {
-        var r = _pickerPanel.AddComponent<RectTransform>();
-        r.anchorMin = new Vector2(0f, 0f);
-        r.anchorMax = new Vector2(1f, 0.88f);
-        r.sizeDelta = Vector2.zero;
+        var scrollGo = new GameObject("Scroll");
+        scrollGo.transform.SetParent(_listPanel.transform, false);
+        var srRect = scrollGo.AddComponent<RectTransform>();
+        srRect.anchorMin = new Vector2(0.02f, 0.02f);
+        srRect.anchorMax = new Vector2(0.98f, 0.98f);
+        srRect.sizeDelta = Vector2.zero;
 
-        var cardImages = new Dictionary<string, Image>();
-        Button confirmComp = null;
-        Image confirmImg  = null;
-        Text  confirmText = null;
+        var scrollRect = scrollGo.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 30f;
 
-        int cardIndex = 0;
-        foreach (var design in DesignCatalog.All)
-        {
-            float xMin = cardIndex * 0.5f;
-            float xMax = xMin + 0.5f;
+        var viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollGo.transform, false);
+        var vpRect = viewport.AddComponent<RectTransform>();
+        vpRect.anchorMin = Vector2.zero;
+        vpRect.anchorMax = Vector2.one;
+        vpRect.sizeDelta = Vector2.zero;
+        // RectMask2D clips by bounds without needing a Graphic — avoids the
+        // Mask+near-zero-alpha-Image trap that wipes everything to black.
+        viewport.AddComponent<RectMask2D>();
+        scrollRect.viewport = vpRect;
 
-            var card = new GameObject("Card_" + design.Id);
-            card.transform.SetParent(_pickerPanel.transform, false);
-            var cardRect = card.AddComponent<RectTransform>();
-            cardRect.anchorMin = new Vector2(xMin, 0.15f); // y stops at 0.15 — buttons live below
-            cardRect.anchorMax = new Vector2(xMax, 1f);
-            cardRect.sizeDelta = Vector2.zero;
-            var cardImg = card.AddComponent<Image>();
-            cardImg.color = ColorRowEven;
-            cardImages[design.Id] = cardImg;
+        var content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        _listContent = content.AddComponent<RectTransform>();
+        _listContent.anchorMin = new Vector2(0f, 1f);
+        _listContent.anchorMax = new Vector2(1f, 1f);
+        _listContent.pivot = new Vector2(0.5f, 1f);
+        _listContent.sizeDelta = Vector2.zero;
 
-            var nameObj = MakeText(card, "Name", design.Name.ToUpper());
-            var nameText = nameObj.GetComponent<Text>();
-            nameText.fontSize = 20;
-            nameText.fontStyle = FontStyle.Bold;
-            nameText.color = ColorGold;
-            nameText.alignment = TextAnchor.MiddleCenter;
-            var nameRect = nameObj.GetComponent<RectTransform>();
-            nameRect.anchorMin = new Vector2(0.08f, 0.72f);
-            nameRect.anchorMax = new Vector2(0.92f, 0.9f);
-            nameRect.sizeDelta = Vector2.zero;
+        var vlg = content.AddComponent<VerticalLayoutGroup>();
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;   // honour LayoutElement.preferredHeight on rows
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.spacing = 4f;
+        vlg.padding = new RectOffset(4, 4, 4, 4);
 
-            var descObj = MakeText(card, "Description", design.Description);
-            var descText = descObj.GetComponent<Text>();
-            descText.fontSize = 13;
-            descText.color = Color.white;
-            descText.alignment = TextAnchor.UpperCenter;
-            var descRect = descObj.GetComponent<RectTransform>();
-            descRect.anchorMin = new Vector2(0.1f, 0.35f);
-            descRect.anchorMax = new Vector2(0.9f, 0.7f);
-            descRect.sizeDelta = Vector2.zero;
+        var fitter = content.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scrollRect.content = _listContent;
 
-            var selectBtn = new GameObject("SelectButton");
-            selectBtn.transform.SetParent(card.transform, false);
-            var selectRect = selectBtn.AddComponent<RectTransform>();
-            selectRect.anchorMin = new Vector2(0.25f, 0.08f);
-            selectRect.anchorMax = new Vector2(0.75f, 0.28f);
-            selectRect.sizeDelta = Vector2.zero;
-            selectBtn.AddComponent<Image>().color = ColorGold;
-            selectBtn.AddComponent<Button>().onClick.AddListener(new Action(() =>
-            {
-                _selectedDesignId = design.Id;
-                foreach (var kv in cardImages)
-                    kv.Value.color = kv.Key == design.Id ? ColorOwned : ColorRowEven;
-                if (confirmComp != null) confirmComp.interactable = true;
-                if (confirmImg  != null) confirmImg.color  = ColorGold;
-                if (confirmText != null) confirmText.color = ColorDark;
-            }));
-            var selectLabelObj = MakeText(selectBtn, "Label", "SELECT");
-            var selectLabel = selectLabelObj.GetComponent<Text>();
-            selectLabel.fontSize = 15;
-            selectLabel.fontStyle = FontStyle.Bold;
-            selectLabel.color = ColorDark;
-            selectLabel.alignment = TextAnchor.MiddleCenter;
-            var selectLabelRect = selectLabelObj.GetComponent<RectTransform>();
-            selectLabelRect.anchorMin = Vector2.zero;
-            selectLabelRect.anchorMax = Vector2.one;
-            selectLabelRect.sizeDelta = Vector2.zero;
-
-            cardIndex++;
-        }
-
-        // Cancel
-        var cancelBtn = new GameObject("CancelButton");
-        cancelBtn.transform.SetParent(_pickerPanel.transform, false);
-        var cancelRect = cancelBtn.AddComponent<RectTransform>();
-        cancelRect.anchorMin = new Vector2(0.02f, 0.02f);
-        cancelRect.anchorMax = new Vector2(0.48f, 0.12f);
-        cancelRect.sizeDelta = Vector2.zero;
-        cancelBtn.AddComponent<Image>().color = ColorMuted;
-        cancelBtn.AddComponent<Button>().onClick.AddListener(new Action(HideDesignPicker));
-        var cancelLabelObj = MakeText(cancelBtn, "Label", "CANCEL");
-        var cancelLabel = cancelLabelObj.GetComponent<Text>();
-        cancelLabel.fontSize = 15;
-        cancelLabel.fontStyle = FontStyle.Bold;
-        cancelLabel.color = Color.white;
-        cancelLabel.alignment = TextAnchor.MiddleCenter;
-        var cancelLabelRect = cancelLabelObj.GetComponent<RectTransform>();
-        cancelLabelRect.anchorMin = Vector2.zero;
-        cancelLabelRect.anchorMax = Vector2.one;
-        cancelLabelRect.sizeDelta = Vector2.zero;
-
-        // Confirm — starts muted/disabled; SELECT listener enables it
-        var confirmBtn = new GameObject("ConfirmButton");
-        confirmBtn.transform.SetParent(_pickerPanel.transform, false);
-        var confirmRect = confirmBtn.AddComponent<RectTransform>();
-        confirmRect.anchorMin = new Vector2(0.52f, 0.02f);
-        confirmRect.anchorMax = new Vector2(0.98f, 0.12f);
-        confirmRect.sizeDelta = Vector2.zero;
-        confirmImg = confirmBtn.AddComponent<Image>();
-        confirmImg.color = ColorMuted;
-        confirmComp = confirmBtn.AddComponent<Button>();
-        confirmComp.interactable = false;
-        confirmComp.onClick.AddListener(new Action(() =>
-        {
-            if (string.IsNullOrEmpty(_selectedDesignId) || string.IsNullOrEmpty(_pendingLocationId))
-                return;
-            string error;
-            try   { error = PropertySystem.TryPurchaseWithDesign(_pendingLocationId, _selectedDesignId); }
-            catch (Exception ex) { MelonLoader.MelonLogger.Error("[Mogul] TryPurchaseWithDesign threw: " + ex.Message); return; }
-            if (error != null) { MelonLoader.MelonLogger.Warning("[Mogul] Purchase failed: " + error); return; }
-            HideDesignPicker();
-        }));
-        var confirmLabelObj = MakeText(confirmBtn, "Label", "CONFIRM");
-        confirmText = confirmLabelObj.GetComponent<Text>();
-        confirmText.fontSize = 15;
-        confirmText.fontStyle = FontStyle.Bold;
-        confirmText.color = ColorMuted; // matches disabled state; SELECT listener sets it to ColorDark
-        confirmText.alignment = TextAnchor.MiddleCenter;
-        var confirmLabelRect = confirmLabelObj.GetComponent<RectTransform>();
-        confirmLabelRect.anchorMin = Vector2.zero;
-        confirmLabelRect.anchorMax = Vector2.one;
-        confirmLabelRect.sizeDelta = Vector2.zero;
-    }
-    private void ShowDesignPicker(string locationId)
-    {
-        _pendingLocationId = locationId;
-        _selectedDesignId = null;
-        _pickerPanel.SetActive(true);
-        _propertiesPanel.SetActive(false);
-    }
-    private void HideDesignPicker()
-    {
-        _pendingLocationId = null;
-        _selectedDesignId = null;
-        _pickerPanel.SetActive(false);
-        _propertiesPanel.SetActive(true);
+        RefreshList();
     }
 
-    private void RefreshPropertiesPanel()
+    private void RefreshList()
     {
-        for (int i = _propertiesPanel.transform.childCount - 1; i >= 0; i--)
-            GameObject.Destroy(_propertiesPanel.transform.GetChild(i).gameObject);
-
-        const float rowH = 0.16f;
-        int index = 0;
+        if (_listContent == null) return;
+        for (int i = _listContent.childCount - 1; i >= 0; i--)
+            GameObject.Destroy(_listContent.GetChild(i).gameObject);
 
         foreach (var location in PropertySystem.Catalog)
         {
             bool owned = PropertySystem.IsOwned(location.Id);
-            float yMin = 1f - (index + 1) * rowH;
-            float yMax = 1f - index * rowH;
+            bool selected = !owned && _selectedRowId == location.Id;
+            BuildRow(location, owned, selected);
+        }
+    }
 
-            var row = new GameObject("Row_" + location.Id);
-            row.transform.SetParent(_propertiesPanel.transform, false);
-            row.AddComponent<Image>().color = index % 2 == 0 ? ColorRowEven : ColorRowOdd;
-            var rowRect = row.GetComponent<RectTransform>();
-            rowRect.anchorMin = new Vector2(0f, yMin);
-            rowRect.anchorMax = new Vector2(1f, yMax);
-            rowRect.sizeDelta = Vector2.zero;
+    private void BuildRow(MogulLocation location, bool owned, bool selected)
+    {
+        float h = selected ? 110f : 56f;
 
-            // Left accent bar — gold if available, muted if owned
-            var accent = new GameObject("Accent");
-            accent.transform.SetParent(row.transform, false);
-            accent.AddComponent<Image>().color = owned ? ColorMuted : ColorGold;
-            var ar = accent.GetComponent<RectTransform>();
-            ar.anchorMin = new Vector2(0f, 0.1f);
-            ar.anchorMax = new Vector2(0.007f, 0.9f);
-            ar.sizeDelta = Vector2.zero;
+        var row = new GameObject("Row_" + location.Id);
+        row.transform.SetParent(_listContent, false);
+        var rowImg = row.AddComponent<Image>();
+        rowImg.color = owned ? ColorRowOwned : (selected ? ColorRowSel : ColorRow);
+        var le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = h;
+        le.minHeight = h;
 
-            // Location name
-            var nameObj = MakeText(row, "Name", location.Name.ToUpper());
-            var nameText = nameObj.GetComponent<Text>();
-            nameText.fontSize = 17;
-            nameText.fontStyle = FontStyle.Bold;
-            nameText.color = owned ? ColorMuted : Color.white;
-            nameText.alignment = TextAnchor.MiddleLeft;
-            var nr = nameObj.GetComponent<RectTransform>();
-            nr.anchorMin = new Vector2(0.03f, 0.48f);
-            nr.anchorMax = new Vector2(0.68f, 1f);
-            nr.sizeDelta = Vector2.zero;
+        var accent = new GameObject("Accent");
+        accent.transform.SetParent(row.transform, false);
+        accent.AddComponent<Image>().color = owned ? ColorMuted : ColorGold;
+        var ar = accent.GetComponent<RectTransform>();
+        ar.anchorMin = new Vector2(0f, 0.1f);
+        ar.anchorMax = new Vector2(0.006f, 0.9f);
+        ar.sizeDelta = Vector2.zero;
 
-            // Price
+        var nameObj = MakeText(row, "Name", location.Name.ToUpper());
+        var nameText = nameObj.GetComponent<Text>();
+        nameText.fontSize = 14;
+        nameText.fontStyle = FontStyle.Bold;
+        nameText.color = Color.white;
+        nameText.alignment = TextAnchor.MiddleLeft;
+        var nr = nameObj.GetComponent<RectTransform>();
+        if (owned)
+        {
+            nr.anchorMin = new Vector2(0.025f, 0f);
+            nr.anchorMax = new Vector2(0.5f, 1f);
+        }
+        else if (selected)
+        {
+            nr.anchorMin = new Vector2(0.025f, 0.7f);
+            nr.anchorMax = new Vector2(0.55f, 1f);
+        }
+        else
+        {
+            nr.anchorMin = new Vector2(0.025f, 0f);
+            nr.anchorMax = new Vector2(0.55f, 1f);
+        }
+        nr.sizeDelta = Vector2.zero;
+
+        if (owned)
+        {
+            BuildButton(row, "Manage", "MANAGE",
+                new Vector2(0.5f, 0.18f), new Vector2(0.73f, 0.82f),
+                ColorGold, ColorDark,
+                () => OpenSubview(View.Manage, location.Id));
+
+            BuildButton(row, "Customize", "CUSTOMIZE",
+                new Vector2(0.75f, 0.18f), new Vector2(0.98f, 0.82f),
+                ColorAccent, Color.white,
+                () => OpenSubview(View.Customize, location.Id));
+        }
+        else if (!selected)
+        {
             var priceObj = MakeText(row, "Price", "$" + location.Price.ToString("N0"));
             var priceText = priceObj.GetComponent<Text>();
             priceText.fontSize = 13;
-            priceText.color = owned ? ColorMuted : ColorGold;
-            priceText.alignment = TextAnchor.MiddleLeft;
-            var pr = priceObj.GetComponent<RectTransform>();
-            pr.anchorMin = new Vector2(0.03f, 0f);
-            pr.anchorMax = new Vector2(0.68f, 0.52f);
-            pr.sizeDelta = Vector2.zero;
+            priceText.color = ColorGold;
+            priceText.alignment = TextAnchor.MiddleRight;
+            var pr2 = priceObj.GetComponent<RectTransform>();
+            pr2.anchorMin = new Vector2(0.6f, 0f);
+            pr2.anchorMax = new Vector2(0.97f, 1f);
+            pr2.sizeDelta = Vector2.zero;
 
-            // Button
-            var btn = new GameObject("Button");
-            btn.transform.SetParent(row.transform, false);
-            btn.AddComponent<Image>().color = owned ? ColorOwned : ColorGold;
-            var br = btn.GetComponent<RectTransform>();
-            br.anchorMin = new Vector2(0.73f, 0.15f);
-            br.anchorMax = new Vector2(0.97f, 0.85f);
-            br.sizeDelta = Vector2.zero;
-
-            var btnLabel = MakeText(btn, "Label", owned ? "OWNED" : "BUY");
-            var btnText = btnLabel.GetComponent<Text>();
-            btnText.fontSize = 15;
-            btnText.fontStyle = FontStyle.Bold;
-            btnText.color = owned ? ColorMuted : ColorDark;
-            btnText.alignment = TextAnchor.MiddleCenter;
-            var blr = btnLabel.GetComponent<RectTransform>();
-            blr.anchorMin = Vector2.zero;
-            blr.anchorMax = Vector2.one;
-            blr.sizeDelta = Vector2.zero;
-
-            var btnComp = btn.AddComponent<Button>();
-            if (!owned)
+            var clickGo = new GameObject("Click");
+            clickGo.transform.SetParent(row.transform, false);
+            var cr = clickGo.AddComponent<RectTransform>();
+            cr.anchorMin = Vector2.zero;
+            cr.anchorMax = Vector2.one;
+            cr.sizeDelta = Vector2.zero;
+            var clickImg = clickGo.AddComponent<Image>();
+            clickImg.color = new Color(0f, 0f, 0f, 0f);
+            clickImg.raycastTarget = true;
+            clickGo.AddComponent<Button>().onClick.AddListener(new Action(() =>
             {
-                btnComp.onClick.AddListener(new Action(() =>
+                _selectedRowId = location.Id;
+                RefreshList();
+            }));
+        }
+        else
+        {
+            var descObj = MakeText(row, "Desc", location.Description);
+            var descText = descObj.GetComponent<Text>();
+            descText.fontSize = 12;
+            descText.color = new Color(0.85f, 0.85f, 0.85f, 1f);
+            descText.alignment = TextAnchor.UpperLeft;
+            descText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            descText.verticalOverflow = VerticalWrapMode.Truncate;
+            var dr = descObj.GetComponent<RectTransform>();
+            dr.anchorMin = new Vector2(0.025f, 0.34f);
+            dr.anchorMax = new Vector2(0.7f, 0.7f);
+            dr.sizeDelta = Vector2.zero;
+
+            var sizeObj = MakeText(row, "Size",
+                $"{location.RoomSize.x:F0} × {location.RoomSize.z:F0} m  ·  Door: {location.Door}");
+            var sizeText = sizeObj.GetComponent<Text>();
+            sizeText.fontSize = 11;
+            sizeText.color = ColorMuted;
+            sizeText.alignment = TextAnchor.UpperLeft;
+            var sr = sizeObj.GetComponent<RectTransform>();
+            sr.anchorMin = new Vector2(0.025f, 0.06f);
+            sr.anchorMax = new Vector2(0.7f, 0.32f);
+            sr.sizeDelta = Vector2.zero;
+
+            var priceObj = MakeText(row, "Price", "$" + location.Price.ToString("N0"));
+            var priceText = priceObj.GetComponent<Text>();
+            priceText.fontSize = 16;
+            priceText.fontStyle = FontStyle.Bold;
+            priceText.color = ColorGold;
+            priceText.alignment = TextAnchor.MiddleRight;
+            var pr2 = priceObj.GetComponent<RectTransform>();
+            pr2.anchorMin = new Vector2(0.55f, 0.7f);
+            pr2.anchorMax = new Vector2(0.97f, 1f);
+            pr2.sizeDelta = Vector2.zero;
+
+            BuildButton(row, "Confirm", "CONFIRM PURCHASE",
+                new Vector2(0.7f, 0.12f), new Vector2(0.97f, 0.55f),
+                ColorGold, ColorDark,
+                () =>
                 {
-                    ShowDesignPicker(location.Id);
-                }));
-            }
-            else
-            {
-                btnComp.interactable = false;
-            }
+                    string error;
+                    try { error = PropertySystem.TryPurchaseWithDesign(location.Id, "classic"); }
+                    catch (Exception ex)
+                    {
+                        MelonLoader.MelonLogger.Error("[Mogul] TryPurchase threw: " + ex.Message);
+                        return;
+                    }
+                    if (error != null)
+                    {
+                        MelonLoader.MelonLogger.Warning("[Mogul] Purchase failed: " + error);
+                        return;
+                    }
+                    _selectedRowId = null;
+                    RefreshList();
+                });
 
-            index++;
+            var collapseGo = new GameObject("Collapse");
+            collapseGo.transform.SetParent(row.transform, false);
+            var cor = collapseGo.AddComponent<RectTransform>();
+            cor.anchorMin = new Vector2(0f, 0.7f);
+            cor.anchorMax = new Vector2(0.7f, 1f);
+            cor.sizeDelta = Vector2.zero;
+            var ci = collapseGo.AddComponent<Image>();
+            ci.color = new Color(0f, 0f, 0f, 0f);
+            ci.raycastTarget = true;
+            collapseGo.AddComponent<Button>().onClick.AddListener(new Action(() =>
+            {
+                _selectedRowId = null;
+                RefreshList();
+            }));
+        }
+    }
+
+    private void BuildButton(GameObject parent, string name, string label,
+        Vector2 anchorMin, Vector2 anchorMax,
+        Color bg, Color fg, Action onClick)
+    {
+        var btn = new GameObject(name);
+        btn.transform.SetParent(parent.transform, false);
+        var br = btn.AddComponent<RectTransform>();
+        br.anchorMin = anchorMin;
+        br.anchorMax = anchorMax;
+        br.sizeDelta = Vector2.zero;
+        btn.AddComponent<Image>().color = bg;
+        btn.AddComponent<Button>().onClick.AddListener(onClick);
+
+        var lo = MakeText(btn, "Label", label);
+        var lt = lo.GetComponent<Text>();
+        lt.fontSize = 11;
+        lt.fontStyle = FontStyle.Bold;
+        lt.color = fg;
+        lt.alignment = TextAnchor.MiddleCenter;
+        var lr = lo.GetComponent<RectTransform>();
+        lr.anchorMin = Vector2.zero;
+        lr.anchorMax = Vector2.one;
+        lr.sizeDelta = Vector2.zero;
+    }
+
+    private void BuildManagePanel(GameObject container)
+    {
+        _managePanel = new GameObject("ManagePanel");
+        _managePanel.transform.SetParent(container.transform, false);
+        var r = _managePanel.AddComponent<RectTransform>();
+        r.anchorMin = new Vector2(0f, 0f);
+        r.anchorMax = new Vector2(1f, 0.9f);
+        r.sizeDelta = Vector2.zero;
+        _managePanel.SetActive(false);
+
+        BuildSection(_managePanel, "INVENTORY",
+            new Vector2(0.04f, 0.55f), new Vector2(0.96f, 0.95f),
+            "(no items yet)");
+        BuildSection(_managePanel, "EMPLOYEES",
+            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.5f),
+            "(no employees hired)");
+    }
+
+    private void BuildCustomizePanel(GameObject container)
+    {
+        _customizePanel = new GameObject("CustomizePanel");
+        _customizePanel.transform.SetParent(container.transform, false);
+        var r = _customizePanel.AddComponent<RectTransform>();
+        r.anchorMin = new Vector2(0f, 0f);
+        r.anchorMax = new Vector2(1f, 0.9f);
+        r.sizeDelta = Vector2.zero;
+        _customizePanel.SetActive(false);
+
+        BuildSection(_customizePanel, "DECORATIONS",
+            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.95f),
+            "(no decorations available yet)");
+    }
+
+    private void BuildSection(GameObject parent, string title,
+        Vector2 anchorMin, Vector2 anchorMax, string emptyText)
+    {
+        var box = new GameObject("Section_" + title);
+        box.transform.SetParent(parent.transform, false);
+        var br = box.AddComponent<RectTransform>();
+        br.anchorMin = anchorMin;
+        br.anchorMax = anchorMax;
+        br.sizeDelta = Vector2.zero;
+        box.AddComponent<Image>().color = ColorRow;
+
+        var titleObj = MakeText(box, "Title", title);
+        var titleText = titleObj.GetComponent<Text>();
+        titleText.fontSize = 12;
+        titleText.fontStyle = FontStyle.Bold;
+        titleText.color = ColorGold;
+        titleText.alignment = TextAnchor.UpperLeft;
+        var tr = titleObj.GetComponent<RectTransform>();
+        tr.anchorMin = new Vector2(0.02f, 0.85f);
+        tr.anchorMax = new Vector2(0.98f, 0.98f);
+        tr.sizeDelta = Vector2.zero;
+
+        var emptyObj = MakeText(box, "Empty", emptyText);
+        var emptyTextC = emptyObj.GetComponent<Text>();
+        emptyTextC.fontSize = 12;
+        emptyTextC.color = ColorMuted;
+        emptyTextC.alignment = TextAnchor.MiddleCenter;
+        var er = emptyObj.GetComponent<RectTransform>();
+        er.anchorMin = new Vector2(0.02f, 0.05f);
+        er.anchorMax = new Vector2(0.98f, 0.85f);
+        er.sizeDelta = Vector2.zero;
+    }
+
+    private void OpenSubview(View view, string locationId)
+    {
+        _detailLocationId = locationId;
+        ShowView(view);
+    }
+
+    private void ShowView(View view)
+    {
+        _currentView = view;
+        if (_listPanel != null)      _listPanel.SetActive(view == View.List);
+        if (_managePanel != null)    _managePanel.SetActive(view == View.Manage);
+        if (_customizePanel != null) _customizePanel.SetActive(view == View.Customize);
+        if (_backButton != null)     _backButton.SetActive(view != View.List);
+
+        var loc = string.IsNullOrEmpty(_detailLocationId) ? null : PropertySystem.Find(_detailLocationId);
+        switch (view)
+        {
+            case View.List:
+                _titleText.text = "MOGUL";
+                _selectedRowId = null;
+                RefreshList();
+                break;
+            case View.Manage:
+                _titleText.text = (loc != null ? loc.Name.ToUpper() : "") + "  ·  MANAGE";
+                break;
+            case View.Customize:
+                _titleText.text = (loc != null ? loc.Name.ToUpper() : "") + "  ·  CUSTOMIZE";
+                break;
         }
     }
 

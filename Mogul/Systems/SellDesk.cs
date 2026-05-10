@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
-using Il2CppScheduleOne.Storage;
 using MelonLoader;
 using Mogul.Data;
 using S1MAPI.Building.Components;
+using S1MAPI.Building.Interior;
+using S1MAPI.Building.Config;
 using S1MAPI.Building.Structural;
+using S1MAPI.Gltf;
 using S1MAPI.S1;
+using S1MAPI.Utils;
 using UnityEngine;
 using Il2CppScheduleOne.Interaction;
 
@@ -15,17 +18,25 @@ public static class SellDesk
 {
     private class SellDeskInstance
     {
-        public GameObject Counter;
-        public GameObject Register;
+        public GameObject Counter;         // the counter surface GO
         public Vector3 QueueAnchor;
-        public InteractableObject RegisterInteractable;
-        public InteractableObject CounterInteractable;
+        public InteractableObject RegisterInteractable;  // cash collection point
+        public InteractableObject CounterInteractable;   // "take order" point
     }
 
     private static readonly Dictionary<string, SellDeskInstance> _spawned = new();
 
     public static void Initialize()
     {
+        // Direct hook: whenever a building is ready (including late-joining clients),
+        // spawn its desk immediately rather than relying on SyncDesks timing.
+        LocationSpawner.OnBuildingReady += (locationId, buildingRoot) =>
+        {
+            var location = PropertySystem.Find(locationId);
+            if (location != null && !_spawned.ContainsKey(locationId))
+                SpawnDesk(location, buildingRoot);
+        };
+
         MogulNetwork.OnDataChanged += _ => SyncDesks();
     }
 
@@ -42,9 +53,9 @@ public static class SellDesk
 
     public static bool TryGetRegister(string locationId, out GameObject register)
     {
-        if (_spawned.TryGetValue(locationId, out var inst) && inst.Register != null)
+        if (_spawned.TryGetValue(locationId, out var inst) && inst.Counter != null)
         {
-            register = inst.Register;
+            register = inst.Counter;
             return true;
         }
         register = null;
@@ -91,8 +102,7 @@ public static class SellDesk
         {
             if (!PropertySystem.IsOwned(location.Id)) continue;
 
-            // If we have an entry but the counter GO was destroyed externally (e.g. building
-            // rebuild), clear the stale entry so SpawnDesk runs again.
+            // Stale entry: entry exists but the counter GO was destroyed — clear and re-spawn.
             if (_spawned.TryGetValue(location.Id, out var existing))
             {
                 if (existing.Counter != null) continue;
@@ -120,11 +130,11 @@ public static class SellDesk
 
         return location.Door switch
         {
-            WallSide.East  => (new Vector3(wallOffset, 0f, d / 2f),       Quaternion.Euler(0f, 90f,  0f)),
-            WallSide.West  => (new Vector3(w - wallOffset, 0f, d / 2f),   Quaternion.Euler(0f, 270f, 0f)),
-            WallSide.North => (new Vector3(w / 2f, 0f, wallOffset),       Quaternion.Euler(0f, 0f,   0f)),
-            WallSide.South => (new Vector3(w / 2f, 0f, d - wallOffset),   Quaternion.Euler(0f, 180f, 0f)),
-            _              => (new Vector3(w / 2f, 0f, wallOffset),       Quaternion.identity),
+            WallSide.East  => (new Vector3(wallOffset, 0f, d / 2f),     Quaternion.Euler(0f, 90f,  0f)),
+            WallSide.West  => (new Vector3(w - wallOffset, 0f, d / 2f), Quaternion.Euler(0f, 270f, 0f)),
+            WallSide.North => (new Vector3(w / 2f, 0f, wallOffset),     Quaternion.Euler(0f, 0f,   0f)),
+            WallSide.South => (new Vector3(w / 2f, 0f, d - wallOffset), Quaternion.Euler(0f, 180f, 0f)),
+            _              => (new Vector3(w / 2f, 0f, wallOffset),     Quaternion.identity),
         };
     }
 
@@ -139,8 +149,6 @@ public static class SellDesk
 
     private static void SpawnDesk(MogulLocation location, GameObject buildingRoot)
     {
-        if (!MogulNetwork.IsHost) return;
-
         try
         {
             var (position, rotation) = ComputeDeskTransform(location);
@@ -148,71 +156,173 @@ public static class SellDesk
 
             MelonLogger.Msg($"[Mogul] SpawnDesk: {locId} pos={position} rot={rotation.eulerAngles}");
 
-            var instance = new SellDeskInstance { QueueAnchor = position + (rotation * Vector3.forward * 0.3f) };
+            // Counter — try the embedded Counter.glb first; fall back to FurnitureBuilder's
+            // 2m×0.9m×0.6m coloured block when no asset has shipped yet. Each machine spawns
+            // its own copy locally; the building root owns lifetime.
+            GameObject counter;
+            float counterTopY;
+            var counterGlb = TryLoadCounterGlb(buildingRoot.transform, position, rotation);
+            if (counterGlb != null)
+            {
+                counter = counterGlb;
+                counterTopY = ComputeLocalTopY(counter);
+                MelonLogger.Msg($"[Mogul] Counter GLB loaded for {locId}, topY={counterTopY:F3}");
+            }
+            else
+            {
+                var palette = new BuildingPalette();
+                var furnitureBuilder = new FurnitureBuilder(buildingRoot.transform, palette);
+                counter = furnitureBuilder.Create(FurnitureType.Counter, position, rotation, new Color(0.18f, 0.18f, 0.18f));
+                counterTopY = 0.9f; // FurnitureType.Counter is 2×0.9×0.6
+            }
+            counter.name = "Mogul_Counter_" + locId;
+
+            var queueAnchor = position + (rotation * Vector3.forward * 0.3f);
+            var instance = new SellDeskInstance { Counter = counter, QueueAnchor = queueAnchor };
             _spawned[locId] = instance;
 
-            // Counter surface — MetalSquareTable as the base (non-networked, child of building root).
-            // Sits at desk position, register goes on top.
-            var placer = new PrefabPlacer(buildingRoot.transform);
-            placer.Place(Prefabs.MetalSquareTable, position, rotation,
-                networked: false,
-                onReady: counterGo =>
-                {
-                    if (counterGo == null)
-                    {
-                        MelonLogger.Warning($"[Mogul] Counter table prefab not ready for {locId}");
-                        return;
-                    }
-                    counterGo.name = "Mogul_Counter_" + locId;
-                    if (_spawned.TryGetValue(locId, out var inst)) inst.Counter = counterGo;
+            MelonLogger.Msg($"[Mogul] Counter created for {locId}. QueueAnchor={queueAnchor}");
 
-                    // InteractableObject on the table itself (for the "Take order" prompt).
-                    var counterInteractable = counterGo.GetComponentInChildren<InteractableObject>(true);
-                    if (counterInteractable == null)
-                    {
-                        counterInteractable = counterGo.AddComponent<InteractableObject>();
-                        var col = counterGo.GetComponent<Collider>() ?? counterGo.GetComponentInChildren<Collider>(true);
-                        if (col != null) counterInteractable.displayLocationCollider = col;
-                    }
-                    counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-                    if (_spawned.TryGetValue(locId, out var inst2)) inst2.CounterInteractable = counterInteractable;
+            // "Take order" interactable — sits on the counter, faces the customer side.
+            var counterInteractable = counter.GetComponentInChildren<InteractableObject>(true);
+            if (counterInteractable == null)
+            {
+                counterInteractable = counter.AddComponent<InteractableObject>();
+                var col = counter.GetComponent<Collider>() ?? counter.GetComponentInChildren<Collider>(true);
+                if (col != null) counterInteractable.displayLocationCollider = col;
+            }
+            counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+            instance.CounterInteractable = counterInteractable;
 
-                    MelonLogger.Msg($"[Mogul] Counter table ready for {locId}");
+            // CashRegister: single GameObject carrying visual + trigger + InteractableObject.
+            // Loads embedded GLB if shipped; otherwise a primitive cube placeholder. Either way
+            // the visual and the hover trigger are the same node, so we can never end up
+            // invisible-but-hoverable. Local-only on every machine, no FishNet involvement.
+            var registerGo = TryLoadRegisterGlb() ?? CreatePlaceholderRegister();
+            registerGo.name = "Mogul_Register_" + locId;
+            registerGo.transform.SetParent(counter.transform, false);
+            registerGo.transform.localPosition = new Vector3(0.3f, counterTopY + 0.05f, 0.05f);
+            registerGo.transform.localRotation = Quaternion.Euler(0f, 270f, 0f);
 
-                    // Cash register on top of the table. MetalSquareTable is ~0.75m tall.
-                    // Networked so it survives save/load properly.
-                    var regPlacer = new PrefabPlacer(counterGo.transform);
-                    regPlacer.Place(Prefabs.CashRegister,
-                        new Vector3(0f, 0.8f, 0f),
-                        Quaternion.identity,
-                        networked: true,
-                        onReady: regGo =>
-                        {
-                            if (regGo == null)
-                            {
-                                MelonLogger.Warning($"[Mogul] CashRegister prefab not ready for {locId}");
-                                return;
-                            }
-                            regGo.name = "Mogul_CashRegister_" + locId;
-                            var interactable = regGo.GetComponent<InteractableObject>()
-                                            ?? regGo.AddComponent<InteractableObject>();
-                            interactable.displayLocationCollider = regGo.GetComponent<Collider>()
-                                                                ?? regGo.GetComponentInChildren<Collider>(true);
-                            interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
-                            if (_spawned.TryGetValue(locId, out var inst3))
-                            {
-                                inst3.RegisterInteractable = interactable;
-                                inst3.Register = regGo;
-                            }
-                            MelonLogger.Msg($"[Mogul] Cash register ready for {locId}");
-                        });
-                });
+            // Strip any colliders the GLB carried — they'd block the player or hijack hover.
+            foreach (var col in registerGo.GetComponentsInChildren<Collider>(true))
+                UnityEngine.Object.Destroy(col);
 
-            MelonLogger.Msg($"[Mogul] SpawnDesk placement requested for {locId}. QueueAnchor={instance.QueueAnchor}");
+            var registerCollider = registerGo.AddComponent<BoxCollider>();
+            registerCollider.size = new Vector3(0.4f, 0.5f, 0.3f);
+            registerCollider.center = new Vector3(0f, 0.25f, 0f);
+            registerCollider.isTrigger = true;
+
+            int deskLayer = counter.layer;
+            registerGo.layer = deskLayer;
+            foreach (var t in registerGo.GetComponentsInChildren<Transform>(true))
+                t.gameObject.layer = deskLayer;
+
+            var registerInteractable = registerGo.AddComponent<InteractableObject>();
+            registerInteractable.displayLocationCollider = registerCollider;
+            registerInteractable.MaxInteractionRange = 3f;
+            registerInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+            instance.RegisterInteractable = registerInteractable;
+
+            MelonLogger.Msg($"[Mogul] Sell desk ready for {locId}");
         }
         catch (Exception ex)
         {
             MelonLogger.Error($"[Mogul] SpawnDesk failed for {location.Id}: {ex}");
         }
+    }
+
+    private static GameObject TryLoadCounterGlb(Transform parent, Vector3 worldPos, Quaternion worldRot)
+    {
+        try
+        {
+            var bytes = EmbeddedResourceLoader.LoadBytes(
+                "Mogul.Resources.Counter.glb",
+                System.Reflection.Assembly.GetExecutingAssembly());
+            if (bytes == null) return null;
+            var go = GltfLoader.LoadGlb(bytes);
+            if (go == null) return null;
+
+            go.transform.SetParent(parent, false);
+            go.transform.position = worldPos;
+            go.transform.rotation = worldRot;
+
+            // Imported colliders rarely match the visual cleanly — strip and add a
+            // single bounding box so the player can lean on it but not phase through.
+            foreach (var col in go.GetComponentsInChildren<Collider>(true))
+                UnityEngine.Object.Destroy(col);
+
+            var bounds = ComputeWorldBounds(go);
+            if (bounds.HasValue)
+            {
+                var box = go.AddComponent<BoxCollider>();
+                var localCenter = go.transform.InverseTransformPoint(bounds.Value.center);
+                box.center = localCenter;
+                // Scale world-size into local-size assuming uniform scale (typical for GLB imports).
+                var scale = go.transform.lossyScale;
+                box.size = new Vector3(
+                    bounds.Value.size.x / Mathf.Max(0.0001f, Mathf.Abs(scale.x)),
+                    bounds.Value.size.y / Mathf.Max(0.0001f, Mathf.Abs(scale.y)),
+                    bounds.Value.size.z / Mathf.Max(0.0001f, Mathf.Abs(scale.z))
+                );
+            }
+
+            return go;
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Warning($"[Mogul] Counter GLB load failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static float ComputeLocalTopY(GameObject go)
+    {
+        var bounds = ComputeWorldBounds(go);
+        if (!bounds.HasValue) return 0.9f;
+        var topWorld = new Vector3(bounds.Value.center.x, bounds.Value.max.y, bounds.Value.center.z);
+        return go.transform.InverseTransformPoint(topWorld).y;
+    }
+
+    private static Bounds? ComputeWorldBounds(GameObject go)
+    {
+        var renderers = go.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0) return null;
+        var b = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            b.Encapsulate(renderers[i].bounds);
+        return b;
+    }
+
+    private static GameObject TryLoadRegisterGlb()
+    {
+        try
+        {
+            var bytes = EmbeddedResourceLoader.LoadBytes(
+                "Mogul.Resources.cashregister_cashdrawer.glb",
+                System.Reflection.Assembly.GetExecutingAssembly());
+            if (bytes == null) return null;
+            var go = GltfLoader.LoadGlb(bytes);
+            if (go == null) return null;
+            go.transform.localScale = Vector3.one * 0.7f;
+            return go;
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Warning($"[Mogul] CashRegister GLB load failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    // Last-resort placeholder so the register is visible and interactable even
+    // before art lands. Dark red cube, register-ish proportions.
+    private static GameObject CreatePlaceholderRegister()
+    {
+        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        go.transform.localScale = new Vector3(0.35f, 0.25f, 0.25f);
+        var renderer = go.GetComponent<Renderer>();
+        if (renderer != null && renderer.material != null)
+            renderer.material.color = new Color(0.4f, 0.05f, 0.05f);
+        return go;
     }
 }

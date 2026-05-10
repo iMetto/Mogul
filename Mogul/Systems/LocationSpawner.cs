@@ -13,7 +13,11 @@ namespace Mogul.Systems;
 
 public static class LocationSpawner
 {
-    // Tracks which location IDs have a building in the scene already.                                                       
+    // Fired after a building is fully constructed and registered in _spawned.
+    // Both host and client fire this — SellDesk subscribes to spawn desks on demand.
+    public static event Action<string, GameObject> OnBuildingReady;
+
+    // Tracks which location IDs have a building in the scene already.
     // Key = location.Id, Value = the spawned GameObject
     private static readonly Dictionary<string, GameObject> _spawned = new();
     private static readonly Dictionary<string, NavigationBuilder> _navBuilders = new();
@@ -113,7 +117,7 @@ public static class LocationSpawner
             navBuilder.Build();
             _navBuilders[location.Id] = navBuilder;
             _spawned[location.Id] = go;
-            SellDesk.SyncDesks();
+            OnBuildingReady?.Invoke(location.Id, go);
 
             MelonLogger.Msg($"[Mogul] Spawned {location.Name} at {location.WorldPosition}");
         }
