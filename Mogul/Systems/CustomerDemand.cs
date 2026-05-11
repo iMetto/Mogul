@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using Il2CppScheduleOne.Product;
-using UnityEngine;
 
 namespace Mogul.Systems;
 
@@ -111,7 +110,7 @@ public static class CustomerDemand
             float effectScore = (matchCount / 3f) * 0.4f;
 
             float raw    = prefs.WeedAffinity * 0.3f + effectScore + step * 0.3f;
-            float appeal = Mathf.InverseLerp(-0.6f, 1.0f, raw);
+            float appeal = InverseLerp(-0.6f, 1.0f, raw);
             scored.Add((s, appeal));
         }
 
@@ -127,8 +126,8 @@ public static class CustomerDemand
 
         // How much of their budget they commit this visit scales with how much they like
         // what's on offer: 25% at the minimum threshold, 100% when appeal is great.
-        float visitFraction = Mathf.InverseLerp(MinAppealToStay, 0.80f, bestAppeal);
-        float remaining     = prefs.TotalBudget * Mathf.Lerp(0.25f, 1.0f, visitFraction);
+        float visitFraction = InverseLerp(MinAppealToStay, 0.80f, bestAppeal);
+        float remaining     = prefs.TotalBudget * Lerp(0.25f, 1.0f, visitFraction);
 
         var   rng      = new System.Random(seed ^ 0x4A2F);
         var   selected = new List<SelectedProduct>();
@@ -139,14 +138,14 @@ public static class CustomerDemand
             var (prod, appeal) = scored[pick];
             scored.RemoveAt(pick);
 
-            float enjoyScale = Mathf.Lerp(0.66f, 1.5f, appeal);
+            float enjoyScale = Lerp(0.66f, 1.5f, appeal);
 
             // How much of the remaining budget to spend on this item (30–85%).
             // Capped at remaining/price so we never exceed the committed budget.
-            float itemFraction = Mathf.Lerp(0.30f, 0.85f, appeal);
-            int   maxAffordable = Mathf.FloorToInt(remaining / prod.Price);
-            int   qty = Mathf.Max(1, Mathf.FloorToInt(remaining * itemFraction / prod.Price));
-            qty = Mathf.Clamp(qty, 1, Mathf.Min(prod.TotalPackages, maxAffordable));
+            float itemFraction = Lerp(0.30f, 0.85f, appeal);
+            int   maxAffordable = FloorToInt(remaining / prod.Price);
+            int   qty = System.Math.Max(1, FloorToInt(remaining * itemFraction / prod.Price));
+            qty = Clamp(qty, 1, System.Math.Min(prod.TotalPackages, maxAffordable));
 
             selected.Add(new SelectedProduct
             {
@@ -165,5 +164,29 @@ public static class CustomerDemand
             return (new List<SelectedProduct>(), overBudget > 0 ? RejectionReason.TooExpensive : RejectionReason.LowAppeal);
 
         return (selected, RejectionReason.None);
+    }
+
+    private static float Lerp(float a, float b, float t) => a + (b - a) * Clamp01(t);
+
+    private static float InverseLerp(float a, float b, float value)
+    {
+        if (a == b) return 0f;
+        return Clamp01((value - a) / (b - a));
+    }
+
+    private static float Clamp01(float value)
+    {
+        if (value < 0f) return 0f;
+        if (value > 1f) return 1f;
+        return value;
+    }
+
+    private static int FloorToInt(float value) => (int)System.Math.Floor(value);
+
+    private static int Clamp(int value, int min, int max)
+    {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
     }
 }

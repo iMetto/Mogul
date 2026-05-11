@@ -11,6 +11,7 @@
     "lean-ctx": {
       "command": "lean-ctx",
       "args": [],
+      "cwd": "/home/imetto/projects/mods/Mogul",
       "env": {
         "LEAN_CTX_DATA_DIR": "/home/imetto/.lean-ctx"
       },

@@ -1,0 +1,103 @@
+{
+  "version": 3,
+  "targets": {
+    "net6.0": {
+      "Mogul/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v6.0",
+        "compile": {
+          "bin/placeholder/Mogul.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/Mogul.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Mogul/1.0.0": {
+      "type": "project",
+      "path": "../Mogul/Mogul.csproj",
+      "msbuildProject": "../Mogul/Mogul.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net6.0": [
+      "Mogul >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "/home/imetto/.nuget/packages/": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "/home/imetto/projects/mods/Mogul/Mogul.Tests/Mogul.Tests.csproj",
+      "projectName": "Mogul.Tests",
+      "projectPath": "/home/imetto/projects/mods/Mogul/Mogul.Tests/Mogul.Tests.csproj",
+      "packagesPath": "/home/imetto/.nuget/packages/",
+      "outputPath": "/home/imetto/projects/mods/Mogul/Mogul.Tests/obj/",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "/home/imetto/.nuget/NuGet/NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net6.0"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net6.0": {
+          "targetAlias": "net6.0",
+          "projectReferences": {
+            "/home/imetto/projects/mods/Mogul/Mogul/Mogul.csproj": {
+              "projectPath": "/home/imetto/projects/mods/Mogul/Mogul/Mogul.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      }
+    },
+    "frameworks": {
+      "net6.0": {
+        "targetAlias": "net6.0",
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[6.0.36, 6.0.36]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Host.linux-x64",
+            "version": "[6.0.36, 6.0.36]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[6.0.36, 6.0.36]"
+          }
+        ],
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "/usr/lib/dotnet/sdk/8.0.126/RuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}
