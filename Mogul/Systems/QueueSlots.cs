@@ -74,14 +74,12 @@ internal static class QueueSlots
             if (Mathf.Abs(Vector3.Dot(candidate - prev, inDir)) < Spacing * 0.4f) break;
 
             results.Add(new QueueSlot(candidate, false));
-            MelonLogger.Msg($"[Mogul] [{location.Id}] interior slot {results.Count - 1}: {candidate}");
         }
 
         // ── Exterior slots (world-space) ────────────────────────────────────
         var extSlots = BuildExterior(location);
         results.AddRange(extSlots);
 
-        MelonLogger.Msg($"[Mogul] [{location.Id}] slots: {results.Count} ({results.Count - extSlots.Count} interior, {extSlots.Count} exterior)");
         return results;
     }
 
@@ -104,7 +102,6 @@ internal static class QueueSlots
                 worldPos = hit.position;
 
             list.Add(new QueueSlot(worldPos, true));
-            MelonLogger.Msg($"[Mogul] [{location.Id}] exterior slot {i}: {worldPos}");
         }
         return list;
     }

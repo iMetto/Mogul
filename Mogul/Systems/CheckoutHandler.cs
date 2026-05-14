@@ -40,14 +40,20 @@ public static class CheckoutHandler
     {
         if (!IsOpen) return;
 
+        var result = FulfillOrderDirect(ActiveLocationId, _customer, _buildingRoot, CustomerOrder);
+        Close(result);
+    }
+
+    public static CheckoutResult FulfillOrderDirect(string locationId, NPC customer, GameObject buildingRoot, List<SelectedProduct> order)
+    {
         float total = 0f;
         float tip   = 0f;
-        foreach (var item in CustomerOrder)
+        foreach (var item in order ?? new List<SelectedProduct>())
         {
             int fulfilled = 0;
             for (int i = 0; i < item.Quantity; i++)
             {
-                if (StorageScanner.TakeOne(_buildingRoot, item.ProductId, item.QualityLevel))
+                if (StorageScanner.TakeOne(buildingRoot, item.ProductId, item.QualityLevel))
                 {
                     total += item.Price;
                     fulfilled++;
@@ -60,15 +66,14 @@ public static class CheckoutHandler
         if (total <= 0f)
         {
             MelonLogger.Msg($"[Mogul] CheckoutHandler: stock ran out during fulfillment");
-            _customer?.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
-            _customer?.DialogueHandler?.WorldspaceRend?.ShowText("Stock ran out...", 3f);
-            Close(CheckoutResult.NoStock);
-            return;
+            customer?.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
+            customer?.DialogueHandler?.WorldspaceRend?.ShowText("Stock ran out...", 3f);
+            return CheckoutResult.NoStock;
         }
 
-        CashRegister.AddSale(ActiveLocationId, total);
+        CashRegister.AddSale(locationId, total);
         if (tip > 0.01f)
-            CashRegister.AddSale(ActiveLocationId, tip);
+            CashRegister.AddSale(locationId, tip);
 
         string saleMsg = tip > 0.01f
             ? $"[Mogul] Order fulfilled — ${total:F0} + ${tip:F2} tip"
@@ -76,9 +81,9 @@ public static class CheckoutHandler
         MelonLogger.Msg(saleMsg);
 
         string npcMsg = tip > 0.01f ? $"Thanks! ${total:F0} + ${tip:F0} tip" : $"Thanks! ${total:F0}";
-        _customer?.VoiceOverEmitter?.Play(EVOLineType.Thanks);
-        _customer?.DialogueHandler?.WorldspaceRend?.ShowText(npcMsg, 3f);
-        Close(CheckoutResult.Sold);
+        customer?.VoiceOverEmitter?.Play(EVOLineType.Thanks);
+        customer?.DialogueHandler?.WorldspaceRend?.ShowText(npcMsg, 3f);
+        return CheckoutResult.Sold;
     }
 
     // Player pressed Q — UI closes, NPC stays waiting at the counter.

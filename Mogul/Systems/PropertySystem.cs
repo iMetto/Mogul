@@ -23,7 +23,10 @@ public static class PropertySystem
             new Vector3(-171.44f, -3.0f, 70f),
             WallSide.East, new Vector3(12f, 3f, 8f),
             deskOffset: new Vector3(10f, 0f, 6.5f),
-            deskRotation: Quaternion.Euler(0f, 180f, 0f),
+            deskRotation: Quaternion.Euler(0f, 90f, 0f),
+            sellDesk: new SellDeskConfig(
+                registerLocalPos: new Vector3(-0.13f, 0.95f, 0.12f),
+                registerLocalRotation: Quaternion.Euler(0f, 0f, 0f)),
             storageRacks:
             [
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 3f)),
@@ -54,7 +57,7 @@ public static class PropertySystem
             new Vector3(71.93f, 5.0f, -76f),
             WallSide.East, new Vector3(14f, 4f, 16f),
             deskOffset: new Vector3(12.5f, 0f, 14.5f),
-            deskRotation: Quaternion.Euler(0f, 180f, 0f),
+            deskRotation: Quaternion.Euler(0f, 90f, 0f),
             storageRacks:
             [
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 4f)),

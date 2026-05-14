@@ -19,6 +19,28 @@ public class StorageRackConfig
     }
 }
 
+public class SellDeskConfig
+{
+    public Vector3 RegisterLocalPos { get; }
+    public Quaternion RegisterLocalRotation { get; }
+    public bool HasRegisterPlacement { get; }
+
+    public Vector3 StaffLocalPos { get; }
+    public bool HasStaffLocalPos { get; }
+
+    public SellDeskConfig(
+        Vector3 registerLocalPos = default,
+        Quaternion registerLocalRotation = default,
+        Vector3 staffLocalPos = default)
+    {
+        RegisterLocalPos = registerLocalPos;
+        RegisterLocalRotation = registerLocalRotation == default ? Quaternion.Euler(0f, 270f, 0f) : registerLocalRotation;
+        HasRegisterPlacement = registerLocalPos != default || registerLocalRotation != default;
+        StaffLocalPos = staffLocalPos;
+        HasStaffLocalPos = staffLocalPos != default;
+    }
+}
+
 public class MogulLocation
 {
     public string Id { get; }
@@ -31,6 +53,7 @@ public class MogulLocation
     public Vector3 DeskOffset { get; }
     /// <summary>When set (non-identity), overrides the auto-computed desk rotation.</summary>
     public Quaternion DeskRotation { get; }
+    public SellDeskConfig SellDesk { get; }
     public StorageRackConfig[] StorageRacks { get; }
     /// <summary>How many interior queue slots to allow before spilling outside. Default 8.</summary>
     public int MaxInteriorSlots { get; }
@@ -42,11 +65,12 @@ public class MogulLocation
      float price,
      Vector3 worldPosition,
      WallSide door,
-     Vector3 roomSize,
-     Vector3 deskOffset = default,
-     Quaternion deskRotation = default,
-     StorageRackConfig[] storageRacks = null,
-     int maxInteriorSlots = 8)
+        Vector3 roomSize,
+        Vector3 deskOffset = default,
+        Quaternion deskRotation = default,
+        SellDeskConfig sellDesk = null,
+        StorageRackConfig[] storageRacks = null,
+        int maxInteriorSlots = 8)
     {
         Id = id;
         Name = name;
@@ -57,6 +81,7 @@ public class MogulLocation
         RoomSize = roomSize;
         DeskOffset = deskOffset;
         DeskRotation = deskRotation;
+        SellDesk = sellDesk ?? new SellDeskConfig();
         StorageRacks = storageRacks ?? System.Array.Empty<StorageRackConfig>();
         MaxInteriorSlots = maxInteriorSlots;
     }

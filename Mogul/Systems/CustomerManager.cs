@@ -116,7 +116,6 @@ public static class CustomerManager
                 active++;
         if (active >= MaxConcurrentCustomers)
         {
-            MelonLogger.Msg($"[Mogul] {location.Id} at customer cap ({active}) — skipping spawn");
             return;
         }
 
@@ -156,7 +155,6 @@ public static class CustomerManager
             };
             _active[npc] = entry;
 
-            MelonLogger.Msg($"[Mogul] Spawning customer queueIdx={queueIdx} for {location.Id}");
             if (queueIdx == 0)
             {
                 SendToCounter(entry, worldQueueAnchor);
@@ -164,11 +162,9 @@ public static class CustomerManager
             else
             {
                 var slot = QueueSlots.Get(queueIdx, location, worldQueueAnchor, navBuilder);
-                MelonLogger.Msg($"[Mogul] Queue {queueIdx}: pos={slot.Position} exterior={slot.IsExterior}");
                 SendToQueueSlot(entry, slot, () =>
                 {
                     SetState(entry, CustomerState.WaitingInQueue);
-                    MelonLogger.Msg($"[Mogul] Customer arrived at queue position {queueIdx} in {location.Id}");
                 });
             }
         });
@@ -238,7 +234,6 @@ public static class CustomerManager
                         if (NavMesh.SamplePosition(e.CurrentNavTarget, out var hit, 5f, NavMesh.AllAreas))
                         {
                             e.Npc.Movement?.Warp(hit.position);
-                            MelonLogger.Msg($"[Mogul] Warped stuck customer to {hit.position}");
                         }
                         e.StuckStrikes = 0;
                     }
@@ -259,7 +254,6 @@ public static class CustomerManager
                 {
                     // Leaving is a terminal state — if the NPC hasn't made it out in 30s,
                     // give up and despawn now rather than spamming retries.
-                    MelonLogger.Msg($"[Mogul] Leaving customer stuck — despawning early");
                     e.DespawnDeadline = Time.time;
                 }
                 else if (++e.Retries > MaxStateRetries)
@@ -269,7 +263,6 @@ public static class CustomerManager
                 }
                 else
                 {
-                    MelonLogger.Msg($"[Mogul] Customer state {e.State} timed out — retry {e.Retries}");
                     RetryCurrentState(e);
                     e.StateEnteredAt = Time.time;
                 }
@@ -372,6 +365,14 @@ public static class CustomerManager
         float total = 0f;
         foreach (var p in order) total += p.Total;
         MelonLogger.Msg($"[Mogul] Customer ordered {order.Count} item(s) ~${total:F0} in {entry.LocationId}");
+
+        if (EmployeeSystem.HasRole(entry.LocationId, EmployeeRole.Cashier))
+        {
+            entry.Npc.DialogueHandler?.WorldspaceRend?.ShowText("Cashier's got it.", 2f);
+            var result = CheckoutHandler.FulfillOrderDirect(entry.LocationId, entry.Npc, buildingRoot, order);
+            if (result != CheckoutResult.Dismissed)
+                StartLeaving(entry);
+        }
     }
 
     private static void OnCheckoutClosed(string locationId, CheckoutResult result)
@@ -526,12 +527,10 @@ public static class CustomerManager
         _respawnsInFlight.TryGetValue(locationId, out int n);
         if (n >= MaxConcurrentRespawns)
         {
-            MelonLogger.Msg($"[Mogul] Respawn cap reached for {locationId} — skipping");
             return;
         }
         _respawnsInFlight[locationId] = n + 1;
         _scheduledRespawns.Add((locationId, Time.time + RespawnDelay));
-        MelonLogger.Msg($"[Mogul] Scheduled replacement for {locationId} (in {RespawnDelay}s)");
     }
 
     private static void DrainScheduledRespawns()
@@ -609,7 +608,6 @@ public static class CustomerManager
                 if (e.QueueIndex == 0)
                 {
                     SendToCounter(e, worldQueueAnchor);
-                    MelonLogger.Msg($"[Mogul] Advancing next customer to counter in {locationId}");
                 }
                 else
                 {

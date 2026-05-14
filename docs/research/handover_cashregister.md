@@ -59,3 +59,50 @@ F5 dump shows a matching name?
 - `assembly/S1MAPI_Il2Cpp/S1MAPI/S1/PrefabRef.cs` — `Find()` implementation, iterates FishNet list
 - `assembly/S1MAPI_Il2Cpp/S1MAPI/S1/Prefabs.cs:21` — `CashRegister = new PrefabRef("CashRegister")`
 - `/home/imetto/projects/mods/OTC-S1-Mod/OverTheCounter/Logic/Placement/CheckoutCounterInstance.cs:348` — OTC's GLB approach
+
+## Mogul Placement Notes
+
+`MogulLocation` now has `SellDeskConfig` for per-location sell-desk tuning.
+Use it instead of hardcoding register/cashier transforms in `SellDesk`.
+
+Current fields:
+
+- `registerLocalPos` - register local position under the counter transform.
+- `registerLocalRotation` - register local rotation under the counter transform.
+- `staffLocalPos` - optional exact cashier standing local position.
+
+Westville currently overrides the register rotation to
+`Quaternion.Euler(0, 0, 0)`, a 90-degree right turn from the previous
+`Quaternion.Euler(0, 270, 0)` placement.
+
+Latest Westville tuning pass:
+
+- User cashier reference: world `(-161.31, -2.44, 77.33)`, yaw `181.4`.
+- User register-on-counter reference: world `(-161.32, -1.51, 76.63)`.
+- Register local offset was nudged to `(-0.13, 0.95, 0.12)` so the visual moves
+  deeper onto the intended counter spot while keeping the current tested height.
+- This still needs an in-game confirmation pass because the standing reference
+  and the counter-top reference came from different world heights.
+
+F5 now logs world position, player yaw, nearest Mogul location local position,
+and nearest Mogul location local yaw. Stand where the cashier/register should
+be, face the desired direction, and paste those values into the test report for
+config tuning.
+
+## Local Ollama Pass
+
+`tools/local-research/run-research.sh cash-registers` was useful as a lead
+generator but not strong enough as a source of truth. It found references to
+`CheckoutCounterInstance`, `RegisterBalance`, `IsStaffed`, and
+`RegisterFloatingText`, but the actionable placement details still needed direct
+verification in OTC source.
+
+Verified OTC source:
+
+- `/home/imetto/projects/mods/OTC-S1-Mod/OverTheCounter/Logic/Placement/CheckoutCounterInstance.cs`
+- `SpawnCashRegister(Transform deskTransform)`
+- register GLB local position: `new Vector3(-0.74f, 0.06f, 0.49f)`
+- register GLB local rotation: `Quaternion.Euler(345f, 90f, 90f)`
+- register GLB local scale: `Vector3.one * 0.14f`
+- `RegisterPosition` returns `_registerInstance.transform.position`
+- `DepositToRegister(float amount)` increments `_registerBalance`

@@ -33,6 +33,7 @@ public static class MogulNetwork
     public static void ReplaceData(MogulSaveData data)
     {
         _localData = data ?? new MogulSaveData();
+        EnsureDataCollections(_localData);
         OnDataChanged?.Invoke(_localData);
     }
 
@@ -42,6 +43,7 @@ public static class MogulNetwork
     {
         if (IsHost || _syncVar == null) return false;
         _localData = _syncVar.Value;
+        EnsureDataCollections(_localData);
         OnDataChanged?.Invoke(_localData);
         return true;
     }
@@ -104,6 +106,7 @@ public static class MogulNetwork
         if (!IsHost)
         {
             _localData = _syncVar.Value;
+            EnsureDataCollections(_localData);
             OnDataChanged?.Invoke(_localData);
         }
     }
@@ -162,11 +165,13 @@ public static class MogulNetwork
     {
         if (IsHost) return;
         _localData = JsonConvert.DeserializeObject<MogulSaveData>(msg.Json) ?? new MogulSaveData();
+        EnsureDataCollections(_localData);
         OnDataChanged?.Invoke(_localData);
     }
 
     private static void ApplyAction(string action, string payload)
     {
+        EnsureDataCollections(_localData);
         bool changed = false;
 
         switch (action)
@@ -224,9 +229,12 @@ public static class MogulNetwork
                 break;
 
             case MogulActions.SetActiveQuest:
-                _localData.ActiveQuestId = payload;
-                _localData.ActiveQuestProgress = 0;
-                changed = true;
+                if (MogulQuestSystem.Find(payload) != null)
+                {
+                    _localData.ActiveQuestId = payload;
+                    _localData.ActiveQuestProgress = 0;
+                    changed = true;
+                }
                 break;
 
             case MogulActions.AdvanceQuest:
@@ -236,6 +244,24 @@ public static class MogulNetwork
                     changed = true;
                 }
                 break;
+
+            case MogulActions.CompleteQuest:
+                {
+                    var quest = MogulQuestSystem.Find(payload);
+                    if (quest == null) break;
+                    if (MogulQuestSystem.IsClaimed(quest, _localData)) break;
+                    if (!MogulQuestSystem.IsComplete(quest, _localData)) break;
+
+                    _localData.CompletedQuestIds.Add(quest.Id);
+                    _localData.Reach += quest.ReachReward;
+                    if (_localData.ActiveQuestId == quest.Id)
+                    {
+                        _localData.ActiveQuestId = null;
+                        _localData.ActiveQuestProgress = 0;
+                    }
+                    changed = true;
+                    break;
+                }
 
             case MogulActions.AddRegisterSale:
                 {
@@ -254,10 +280,81 @@ public static class MogulNetwork
                     }
                     break;
                 }
+
+            case MogulActions.HireEmployee:
+                {
+                    int sep = payload.IndexOf(':');
+                    if (sep > 0 && Enum.TryParse<EmployeeRole>(payload.Substring(sep + 1), out var role))
+                    {
+                        string locId = payload.Substring(0, sep);
+                        if (!_localData.RegisteredLocationIds.Contains(locId))
+                            break;
+
+                        if (!_localData.LocationEmployees.TryGetValue(locId, out var employees))
+                        {
+                            employees = new System.Collections.Generic.List<HiredEmployeeData>();
+                            _localData.LocationEmployees[locId] = employees;
+                        }
+
+                        bool alreadyHired = false;
+                        foreach (var employee in employees)
+                            if (employee.Role == role)
+                            {
+                                alreadyHired = true;
+                                break;
+                            }
+                        if (alreadyHired) break;
+
+                        employees.Add(new HiredEmployeeData
+                        {
+                            Id = $"{locId}_{role}_{employees.Count + 1}",
+                            Role = role,
+                            DisplayName = role switch
+                            {
+                                EmployeeRole.Cashier   => "Casey Cashier",
+                                EmployeeRole.Budtender => "Bailey Budtender",
+                                EmployeeRole.Runner    => "Riley Runner",
+                                _                      => role.ToString(),
+                            },
+                        });
+                        changed = true;
+                    }
+                    break;
+                }
+
+            case MogulActions.AddVirtualInventory:
+                {
+                    var parts = payload.Split(':');
+                    if (parts.Length == 3 && int.TryParse(parts[2], out int qty) && qty > 0)
+                    {
+                        string locId = parts[0];
+                        string itemId = parts[1];
+                        if (!_localData.LocationVirtualInventory.TryGetValue(locId, out var inv))
+                        {
+                            inv = new System.Collections.Generic.Dictionary<string, int>();
+                            _localData.LocationVirtualInventory[locId] = inv;
+                        }
+                        inv.TryGetValue(itemId, out int existing);
+                        inv[itemId] = existing + qty;
+                        changed = true;
+                    }
+                    break;
+                }
         }
 
         if (changed)
             Commit();
+    }
+
+    private static void EnsureDataCollections(MogulSaveData data)
+    {
+        data.RegisteredLocationIds ??= new System.Collections.Generic.List<string>();
+        data.LocationDesigns ??= new System.Collections.Generic.Dictionary<string, string>();
+        data.CompletedQuestIds ??= new System.Collections.Generic.List<string>();
+        data.RegisterBalances ??= new System.Collections.Generic.Dictionary<string, float>();
+        data.LocationEmployees ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<HiredEmployeeData>>();
+        data.LocationVirtualInventory ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, int>>();
+        data.LocationBudtenderProductionDay ??= new System.Collections.Generic.Dictionary<string, int>();
     }
 
     private static void Commit()
@@ -269,35 +366,6 @@ public static class MogulNetwork
             _client.BroadcastMessage(new MogulSyncMessage { Json = JsonConvert.SerializeObject(_localData) });
 
         OnDataChanged?.Invoke(_localData);
-    }
-
-    public static void DumpStoragePrefabs()
-    {
-        try
-        {
-            var nm = InstanceFinder.NetworkManager;
-            if (nm == null) { MelonLogger.Warning("[Mogul] DumpPrefabs: NetworkManager null"); return; }
-            var prefabs = nm.SpawnablePrefabs;
-            if (prefabs == null) { MelonLogger.Warning("[Mogul] DumpPrefabs: SpawnablePrefabs null"); return; }
-
-            int count = prefabs.GetObjectCount();
-            MelonLogger.Msg($"[Mogul] === Storage-related prefabs (total {count}) ===");
-            for (int i = 0; i < count; i++)
-            {
-                var obj = prefabs.GetObject(true, i);
-                if (obj == null) continue;
-                var name = obj.gameObject.name;
-                var lower = name.ToLower();
-                if (lower.Contains("shelf") || lower.Contains("rack") || lower.Contains("storage")
-                    || lower.Contains("display") || lower.Contains("cabinet") || lower.Contains("crate"))
-                    MelonLogger.Msg($"[Mogul]   [{i}] {name}");
-            }
-            MelonLogger.Msg("[Mogul] === End storage prefab dump ===");
-        }
-        catch (Exception ex)
-        {
-            MelonLogger.Warning("[Mogul] DumpPrefabs failed: " + ex.Message);
-        }
     }
 
 }

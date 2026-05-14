@@ -51,6 +51,19 @@ public static class SellDesk
         return false;
     }
 
+    public static bool TryGetStaffAnchor(string locationId, out Vector3 localPos)
+    {
+        var location = PropertySystem.Find(locationId);
+        if (location != null)
+        {
+            localPos = ComputeStaffAnchor(location);
+            return true;
+        }
+
+        localPos = default;
+        return false;
+    }
+
     public static bool TryGetRegister(string locationId, out GameObject register)
     {
         if (_spawned.TryGetValue(locationId, out var inst) && inst.Counter != null)
@@ -147,14 +160,21 @@ public static class SellDesk
         _              => Quaternion.identity,
     };
 
+    private static Vector3 ComputeStaffAnchor(MogulLocation location)
+    {
+        if (location.SellDesk.HasStaffLocalPos)
+            return location.SellDesk.StaffLocalPos;
+
+        var (position, rotation) = ComputeDeskTransform(location);
+        return position - (rotation * Vector3.forward * 0.9f);
+    }
+
     private static void SpawnDesk(MogulLocation location, GameObject buildingRoot)
     {
         try
         {
             var (position, rotation) = ComputeDeskTransform(location);
             var locId = location.Id;
-
-            MelonLogger.Msg($"[Mogul] SpawnDesk: {locId} pos={position} rot={rotation.eulerAngles}");
 
             // Counter — try the embedded Counter.glb first; fall back to FurnitureBuilder's
             // 2m×0.9m×0.6m coloured block when no asset has shipped yet. Each machine spawns
@@ -166,7 +186,6 @@ public static class SellDesk
             {
                 counter = counterGlb;
                 counterTopY = ComputeLocalTopY(counter);
-                MelonLogger.Msg($"[Mogul] Counter GLB loaded for {locId}, topY={counterTopY:F3}");
             }
             else
             {
@@ -180,8 +199,6 @@ public static class SellDesk
             var queueAnchor = position + (rotation * Vector3.forward * 0.3f);
             var instance = new SellDeskInstance { Counter = counter, QueueAnchor = queueAnchor };
             _spawned[locId] = instance;
-
-            MelonLogger.Msg($"[Mogul] Counter created for {locId}. QueueAnchor={queueAnchor}");
 
             // "Take order" interactable — sits on the counter, faces the customer side.
             var counterInteractable = counter.GetComponentInChildren<InteractableObject>(true);
@@ -201,8 +218,10 @@ public static class SellDesk
             var registerGo = TryLoadRegisterGlb() ?? CreatePlaceholderRegister();
             registerGo.name = "Mogul_Register_" + locId;
             registerGo.transform.SetParent(counter.transform, false);
-            registerGo.transform.localPosition = new Vector3(0.3f, counterTopY + 0.05f, 0.05f);
-            registerGo.transform.localRotation = Quaternion.Euler(0f, 270f, 0f);
+            registerGo.transform.localPosition = location.SellDesk.HasRegisterPlacement
+                ? location.SellDesk.RegisterLocalPos
+                : new Vector3(0.3f, counterTopY + 0.05f, 0.05f);
+            registerGo.transform.localRotation = location.SellDesk.RegisterLocalRotation;
 
             // Strip any colliders the GLB carried — they'd block the player or hijack hover.
             foreach (var col in registerGo.GetComponentsInChildren<Collider>(true))
@@ -223,8 +242,6 @@ public static class SellDesk
             registerInteractable.MaxInteractionRange = 3f;
             registerInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
             instance.RegisterInteractable = registerInteractable;
-
-            MelonLogger.Msg($"[Mogul] Sell desk ready for {locId}");
         }
         catch (Exception ex)
         {

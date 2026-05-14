@@ -9,6 +9,7 @@ using Il2CppScheduleOne.Economy;
 using Il2CppScheduleOne.NPCs.Behaviour;
 using Il2CppScheduleOne.Product;
 using MelonLoader;
+using Mogul.Data;
 using UnityEngine;
 using UnityEngine.AI;
 using LayerList = Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.AvatarFramework.AvatarSettings.LayerSetting>;
@@ -38,11 +39,44 @@ public static class CustomerSpawner
 
         try
         {
-            SpawnAt(position, _nextId++, onSpawned);
+            SpawnAt(position, _nextId++, "Customer", "Mogul_Customer_", addCustomerComponent: true, onSpawned);
         }
         catch (Exception ex)
         {
             MelonLogger.Error("[Mogul] SpawnTestNPC failed: " + ex);
+        }
+    }
+
+    public static void SpawnWorkerNPC(Vector3 position, EmployeeRole role, string displayName, Action<NPC> onSpawned = null)
+    {
+        if (!MogulNetwork.IsHost)
+        {
+            MelonLogger.Warning("[Mogul] SpawnWorkerNPC: host only");
+            return;
+        }
+
+        if (_basePrefab == null && !TryFindCivilianPrefab(out _basePrefab))
+        {
+            MelonLogger.Warning("[Mogul] SpawnWorkerNPC: CivilianNPC prefab not found");
+            return;
+        }
+
+        try
+        {
+            int id = _nextId++;
+            SpawnAt(position, id, displayName, "Mogul_Worker_", addCustomerComponent: false, npc =>
+            {
+                npc.ID = "mogul_worker_" + id;
+                var parts = (displayName ?? role.ToString()).Split(' ');
+                npc.FirstName = parts.Length > 0 ? parts[0] : role.ToString();
+                npc.LastName = parts.Length > 1 ? parts[1] : role.ToString();
+                ApplyWorkerAppearance(npc, unchecked((displayName ?? role.ToString()).GetHashCode()), role);
+                onSpawned?.Invoke(npc);
+            });
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Error("[Mogul] SpawnWorkerNPC failed: " + ex);
         }
     }
 
@@ -85,14 +119,14 @@ public static class CustomerSpawner
             if (obj?.gameObject?.name == "CivilianNPC")
             {
                 prefab = obj.gameObject;
-                MelonLogger.Msg("[Mogul] CivilianNPC prefab found at index " + i);
                 return true;
             }
         }
         return false;
     }
 
-    private static void SpawnAt(Vector3 worldPos, int id, Action<NPC> onSpawned = null)
+    private static void SpawnAt(Vector3 worldPos, int id, string displayName, string objectPrefix,
+        bool addCustomerComponent, Action<NPC> onSpawned = null)
     {
         // Snap to NavMesh
         if (NavMesh.SamplePosition(worldPos, out NavMeshHit hit, 10f, NavMesh.AllAreas))
@@ -100,7 +134,7 @@ public static class CustomerSpawner
 
         // Clone prefab while inactive so AddComponent works before Awake
         var clone = UnityEngine.Object.Instantiate(_basePrefab);
-        clone.name = "Mogul_Customer_" + id;
+        clone.name = objectPrefix + id;
         clone.SetActive(false);
 
         // Parent to NPCContainer
@@ -112,17 +146,20 @@ public static class CustomerSpawner
 
         // Identity
         var npc = clone.GetComponent<NPC>();
-        npc.ID = "mogul_customer_" + id;
-        npc.FirstName = "Customer";
+        npc.ID = addCustomerComponent ? "mogul_customer_" + id : "mogul_worker_" + id;
+        npc.FirstName = displayName ?? "Customer";
         npc.LastName = id.ToString();
 
         // Remove from auto-registered list — we manage lifecycle
         NPCManager.NPCRegistry?.Remove(npc);
 
-        // Add Customer component while inactive so S1API can wrap it after network spawn
-        var customerComp = clone.AddComponent<Customer>();
-        customerComp.enabled = true;
-        AssignCustomerData(customerComp, id);
+        if (addCustomerComponent)
+        {
+            // Add Customer component while inactive so S1API can wrap it after network spawn
+            var customerComp = clone.AddComponent<Customer>();
+            customerComp.enabled = true;
+            AssignCustomerData(customerComp, id);
+        }
 
         // Apply appearance before activation
         ApplyAppearance(npc, id);
@@ -147,7 +184,6 @@ public static class CustomerSpawner
             agent.avoidancePriority = 30;
         }
 
-        MelonLogger.Msg($"[Mogul] Spawned customer {id} at {worldPos}");
         onSpawned?.Invoke(npc);
     }
 
@@ -255,6 +291,20 @@ public static class CustomerSpawner
         "Avatar/Accessories/Feet/Sandals/Sandals",
     };
 
+    private static readonly string[] CapFriendlyMaleHair =
+    {
+        "Avatar/Hair/buzzcut/BuzzCut",
+        "Avatar/Hair/closebuzzcut/CloseBuzzCut",
+        "Avatar/Hair/receding/Receding",
+    };
+
+    private static readonly string[] CapFriendlyFemaleHair =
+    {
+        "Avatar/Hair/bun/Bun",
+        "Avatar/Hair/lowbun/LowBun",
+        "Avatar/Hair/closebuzzcut/CloseBuzzCut",
+    };
+
     private static void ApplyAppearance(NPC npc, int seed)
     {
         if (npc.Avatar == null) return;
@@ -349,6 +399,96 @@ public static class CustomerSpawner
             }
         }
     }
+
+    private static void ApplyWorkerAppearance(NPC npc, int seed, EmployeeRole role)
+    {
+        if (npc.Avatar == null) return;
+
+        var prevState = UnityEngine.Random.state;
+        UnityEngine.Random.InitState(seed);
+        bool isFemale;
+        try
+        {
+            var settings = ScriptableObject.CreateInstance<AvatarSettings>();
+            settings.FaceLayerSettings = new LayerList();
+            settings.BodyLayerSettings = new LayerList();
+            settings.AccessorySettings = new AccessoryList();
+
+            settings.Gender = UnityEngine.Random.Range(0f, 1f);
+            isFemale = settings.Gender >= 0.5f;
+
+            var skinTone = SkinTones[UnityEngine.Random.Range(0, SkinTones.Length)];
+            settings.SkinColor = skinTone;
+            var faceTint = new Color(skinTone.r * 0.92f, skinTone.g * 0.88f, skinTone.b * 0.85f);
+
+            settings.Height = UnityEngine.Random.Range(0.93f, 1.08f);
+            settings.Weight = UnityEngine.Random.Range(0.3f, 0.6f);
+            settings.HairColor = RandomHairColor();
+            var hairPool = isFemale ? CapFriendlyFemaleHair : CapFriendlyMaleHair;
+            settings.HairPath = hairPool[UnityEngine.Random.Range(0, hairPool.Length)];
+
+            settings.EyeBallTint = Color.white;
+            settings.PupilDilation = UnityEngine.Random.Range(0.5f, 0.8f);
+            settings.LeftEyeLidColor = skinTone;
+            settings.RightEyeLidColor = skinTone;
+            var lidConfig = new Eye.EyeLidConfiguration { topLidOpen = 0.5f, bottomLidOpen = 0.5f };
+            settings.LeftEyeRestingState = lidConfig;
+            settings.RightEyeRestingState = lidConfig;
+            settings.EyebrowScale = UnityEngine.Random.Range(0.8f, 1.1f);
+            settings.EyebrowThickness = UnityEngine.Random.Range(0.7f, 1.2f);
+
+            var (shirt, cap) = WorkerColors(role);
+
+            settings.FaceLayerSettings.Add(new AvatarSettings.LayerSetting
+            {
+                layerPath = FaceExpressions[UnityEngine.Random.Range(0, FaceExpressions.Length)],
+                layerTint = faceTint,
+            });
+            settings.BodyLayerSettings.Add(new AvatarSettings.LayerSetting
+            {
+                layerPath = "Avatar/Layers/Top/Tucked T-Shirt",
+                layerTint = shirt,
+            });
+            settings.BodyLayerSettings.Add(new AvatarSettings.LayerSetting
+            {
+                layerPath = "Avatar/Layers/Bottom/Jeans",
+                layerTint = new Color(0.12f, 0.12f, 0.14f),
+            });
+            settings.AccessorySettings.Add(new AvatarSettings.AccessorySetting
+            {
+                path = "Avatar/Accessories/Head/Cap/Cap",
+                color = cap,
+            });
+            settings.AccessorySettings.Add(new AvatarSettings.AccessorySetting
+            {
+                path = "Avatar/Accessories/Feet/Sneakers/Sneakers",
+                color = new Color(0.15f, 0.15f, 0.15f),
+            });
+
+            npc.Avatar.LoadAvatarSettings(settings);
+        }
+        finally
+        {
+            UnityEngine.Random.state = prevState;
+        }
+    }
+
+    private static Color RandomHairColor()
+    {
+        float hairHue = UnityEngine.Random.value;
+        return hairHue < 0.4f ? new Color(0.10f, 0.08f, 0.06f)
+             : hairHue < 0.7f ? new Color(0.35f, 0.22f, 0.12f)
+             : hairHue < 0.9f ? new Color(0.70f, 0.55f, 0.35f)
+                              : new Color(0.55f, 0.25f, 0.15f);
+    }
+
+    private static (Color shirt, Color cap) WorkerColors(EmployeeRole role) => role switch
+    {
+        EmployeeRole.Cashier   => (new Color(0.18f, 0.52f, 0.22f), new Color(0.15f, 0.45f, 0.18f)),
+        EmployeeRole.Budtender => (new Color(0.22f, 0.42f, 0.68f), new Color(0.16f, 0.30f, 0.50f)),
+        EmployeeRole.Runner    => (new Color(0.55f, 0.40f, 0.18f), new Color(0.42f, 0.30f, 0.14f)),
+        _                      => (new Color(0.18f, 0.52f, 0.22f), new Color(0.15f, 0.45f, 0.18f)),
+    };
 
     private static Color RandomClothingColor()
     {

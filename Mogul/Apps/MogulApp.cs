@@ -25,19 +25,26 @@ public class MogulApp : PhoneApp
     private static readonly Color ColorDark     = new Color(0.05f, 0.05f, 0.05f, 1f);
     private static readonly Color ColorAccent   = new Color(0.30f, 0.55f, 0.85f, 1f);
 
+    private enum MainTab { Properties, Quests }
     private enum View { List, Manage, Customize }
 
     private Font _font;
     private Text _titleText;
     private Text _reachText;
     private GameObject _backButton;
+    private GameObject _tabBar;
+    private GameObject _propertiesTabButton;
+    private GameObject _questsTabButton;
 
     private GameObject _listPanel;
+    private GameObject _questPanel;
     private GameObject _managePanel;
     private GameObject _customizePanel;
     private RectTransform _listContent;
+    private RectTransform _questContent;
 
     private View _currentView = View.List;
+    private MainTab _mainTab = MainTab.Properties;
     private string _selectedRowId;
     private string _detailLocationId;
 
@@ -48,7 +55,9 @@ public class MogulApp : PhoneApp
             _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             BuildBackground(container);
             BuildHeader(container);
+            BuildTabBar(container);
             BuildListPanel(container);
+            BuildQuestPanel(container);
             BuildManagePanel(container);
             BuildCustomizePanel(container);
 
@@ -56,7 +65,9 @@ public class MogulApp : PhoneApp
             MogulNetwork.OnDataChanged += _ =>
             {
                 RefreshHeader();
-                if (_currentView == View.List) RefreshList();
+                if (_currentView == View.List && _mainTab == MainTab.Properties) RefreshList();
+                if (_currentView == View.List && _mainTab == MainTab.Quests) RefreshQuestPanel();
+                if (_currentView == View.Manage) RefreshManagePanel();
             };
         }
         catch (Exception ex)
@@ -127,6 +138,54 @@ public class MogulApp : PhoneApp
         rr.sizeDelta = Vector2.zero;
     }
 
+    private void BuildTabBar(GameObject container)
+    {
+        _tabBar = new GameObject("MainTabs");
+        _tabBar.transform.SetParent(container.transform, false);
+        var tr = _tabBar.AddComponent<RectTransform>();
+        tr.anchorMin = new Vector2(0f, 0.82f);
+        tr.anchorMax = new Vector2(1f, 0.9f);
+        tr.sizeDelta = Vector2.zero;
+        _tabBar.AddComponent<Image>().color = ColorBg;
+
+        _propertiesTabButton = BuildButton(_tabBar, "Tab_Properties", "PROPERTIES",
+            new Vector2(0.04f, 0.16f), new Vector2(0.49f, 0.86f),
+            ColorGold, ColorDark,
+            () => SelectMainTab(MainTab.Properties));
+
+        _questsTabButton = BuildButton(_tabBar, "Tab_Quests", "QUESTS",
+            new Vector2(0.51f, 0.16f), new Vector2(0.96f, 0.86f),
+            ColorRow, ColorMuted,
+            () => SelectMainTab(MainTab.Quests));
+    }
+
+    private void SelectMainTab(MainTab tab)
+    {
+        _mainTab = tab;
+        _currentView = View.List;
+        _selectedRowId = null;
+        _detailLocationId = null;
+        ShowView(View.List);
+    }
+
+    private void RefreshTabs()
+    {
+        SetTabVisual(_propertiesTabButton, _mainTab == MainTab.Properties);
+        SetTabVisual(_questsTabButton, _mainTab == MainTab.Quests);
+    }
+
+    private void SetTabVisual(GameObject button, bool selected)
+    {
+        if (button == null) return;
+        var image = button.GetComponent<Image>();
+        if (image != null)
+            image.color = selected ? ColorGold : ColorRow;
+
+        var label = button.transform.Find("Label")?.GetComponent<Text>();
+        if (label != null)
+            label.color = selected ? ColorDark : ColorMuted;
+    }
+
     private static string BuildReachLabel()
     {
         int reach = MogulNetwork.Data.Reach;
@@ -145,7 +204,7 @@ public class MogulApp : PhoneApp
         _listPanel.transform.SetParent(container.transform, false);
         var pr = _listPanel.AddComponent<RectTransform>();
         pr.anchorMin = new Vector2(0f, 0f);
-        pr.anchorMax = new Vector2(1f, 0.9f);
+        pr.anchorMax = new Vector2(1f, 0.82f);
         pr.sizeDelta = Vector2.zero;
 
         var scrollGo = new GameObject("Scroll");
@@ -196,6 +255,62 @@ public class MogulApp : PhoneApp
         RefreshList();
     }
 
+    private void BuildQuestPanel(GameObject container)
+    {
+        _questPanel = new GameObject("QuestPanel");
+        _questPanel.transform.SetParent(container.transform, false);
+        var pr = _questPanel.AddComponent<RectTransform>();
+        pr.anchorMin = new Vector2(0f, 0f);
+        pr.anchorMax = new Vector2(1f, 0.82f);
+        pr.sizeDelta = Vector2.zero;
+        _questPanel.SetActive(false);
+
+        var scrollGo = new GameObject("QuestScroll");
+        scrollGo.transform.SetParent(_questPanel.transform, false);
+        var srRect = scrollGo.AddComponent<RectTransform>();
+        srRect.anchorMin = new Vector2(0.02f, 0.02f);
+        srRect.anchorMax = new Vector2(0.98f, 0.98f);
+        srRect.sizeDelta = Vector2.zero;
+
+        var scrollRect = scrollGo.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 30f;
+
+        var viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollGo.transform, false);
+        var vpRect = viewport.AddComponent<RectTransform>();
+        vpRect.anchorMin = Vector2.zero;
+        vpRect.anchorMax = Vector2.one;
+        vpRect.sizeDelta = Vector2.zero;
+        viewport.AddComponent<RectMask2D>();
+        scrollRect.viewport = vpRect;
+
+        var content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        _questContent = content.AddComponent<RectTransform>();
+        _questContent.anchorMin = new Vector2(0f, 1f);
+        _questContent.anchorMax = new Vector2(1f, 1f);
+        _questContent.pivot = new Vector2(0.5f, 1f);
+        _questContent.sizeDelta = Vector2.zero;
+
+        var vlg = content.AddComponent<VerticalLayoutGroup>();
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.spacing = 5f;
+        vlg.padding = new RectOffset(4, 4, 4, 4);
+
+        var fitter = content.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scrollRect.content = _questContent;
+
+        RefreshQuestPanel();
+    }
+
     private void RefreshList()
     {
         if (_listContent == null) return;
@@ -208,6 +323,93 @@ public class MogulApp : PhoneApp
             bool selected = !owned && _selectedRowId == location.Id;
             BuildRow(location, owned, selected);
         }
+    }
+
+    private void RefreshQuestPanel()
+    {
+        if (_questContent == null) return;
+        for (int i = _questContent.childCount - 1; i >= 0; i--)
+            GameObject.Destroy(_questContent.GetChild(i).gameObject);
+
+        foreach (var quest in MogulQuestSystem.Quests)
+            BuildQuestRow(quest);
+    }
+
+    private void BuildQuestRow(MogulQuestDefinition quest)
+    {
+        var data = MogulNetwork.Data;
+        int progress = MogulQuestSystem.GetProgress(quest, data);
+        bool active = data.ActiveQuestId == quest.Id;
+        bool complete = MogulQuestSystem.IsComplete(quest, data);
+        bool claimed = MogulQuestSystem.IsClaimed(quest, data);
+
+        var row = new GameObject("Quest_" + quest.Id);
+        row.transform.SetParent(_questContent, false);
+        var rowImg = row.AddComponent<Image>();
+        rowImg.color = claimed ? ColorRowOwned : active ? ColorRowSel : ColorRow;
+        var le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = 102f;
+        le.minHeight = 102f;
+
+        var accent = new GameObject("Accent");
+        accent.transform.SetParent(row.transform, false);
+        accent.AddComponent<Image>().color = claimed ? ColorMuted : complete ? ColorGold : ColorAccent;
+        var ar = accent.GetComponent<RectTransform>();
+        ar.anchorMin = new Vector2(0f, 0.1f);
+        ar.anchorMax = new Vector2(0.006f, 0.9f);
+        ar.sizeDelta = Vector2.zero;
+
+        var titleObj = MakeText(row, "Title", quest.Title.ToUpper());
+        var titleText = titleObj.GetComponent<Text>();
+        titleText.fontSize = 13;
+        titleText.fontStyle = FontStyle.Bold;
+        titleText.color = Color.white;
+        titleText.alignment = TextAnchor.UpperLeft;
+        var tr = titleObj.GetComponent<RectTransform>();
+        tr.anchorMin = new Vector2(0.025f, 0.68f);
+        tr.anchorMax = new Vector2(0.6f, 0.94f);
+        tr.sizeDelta = Vector2.zero;
+
+        var descObj = MakeText(row, "Description", quest.Description);
+        var descText = descObj.GetComponent<Text>();
+        descText.fontSize = 11;
+        descText.color = new Color(0.82f, 0.82f, 0.82f, 1f);
+        descText.alignment = TextAnchor.UpperLeft;
+        descText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        descText.verticalOverflow = VerticalWrapMode.Truncate;
+        var dr = descObj.GetComponent<RectTransform>();
+        dr.anchorMin = new Vector2(0.025f, 0.28f);
+        dr.anchorMax = new Vector2(0.62f, 0.68f);
+        dr.sizeDelta = Vector2.zero;
+
+        string status = claimed
+            ? $"CLAIMED · +{quest.ReachReward} reach"
+            : $"{quest.Objective}: {Math.Min(progress, quest.Target)}/{quest.Target} · +{quest.ReachReward} reach";
+        var statusObj = MakeText(row, "Status", status);
+        var statusText = statusObj.GetComponent<Text>();
+        statusText.fontSize = 11;
+        statusText.color = complete && !claimed ? ColorGold : ColorMuted;
+        statusText.alignment = TextAnchor.UpperLeft;
+        var sr = statusObj.GetComponent<RectTransform>();
+        sr.anchorMin = new Vector2(0.025f, 0.06f);
+        sr.anchorMax = new Vector2(0.64f, 0.28f);
+        sr.sizeDelta = Vector2.zero;
+
+        string buttonText = claimed ? "CLAIMED" : complete ? "CLAIM" : active ? "TRACKING" : "TRACK";
+        Color buttonColor = claimed ? ColorRowOwned : complete ? ColorGold : active ? ColorAccent : ColorRow;
+        Color textColor = complete ? ColorDark : active ? Color.white : ColorMuted;
+        BuildButton(row, "QuestAction", buttonText,
+            new Vector2(0.68f, 0.24f), new Vector2(0.96f, 0.76f),
+            buttonColor, textColor,
+            () =>
+            {
+                if (claimed) return;
+                if (complete)
+                    MogulQuestSystem.RequestClaim(quest.Id);
+                else
+                    MogulQuestSystem.RequestTrack(quest.Id);
+                RefreshQuestPanel();
+            });
     }
 
     private void BuildRow(MogulLocation location, bool owned, bool selected)
@@ -367,7 +569,7 @@ public class MogulApp : PhoneApp
         }
     }
 
-    private void BuildButton(GameObject parent, string name, string label,
+    private GameObject BuildButton(GameObject parent, string name, string label,
         Vector2 anchorMin, Vector2 anchorMax,
         Color bg, Color fg, Action onClick)
     {
@@ -390,6 +592,7 @@ public class MogulApp : PhoneApp
         lr.anchorMin = Vector2.zero;
         lr.anchorMax = Vector2.one;
         lr.sizeDelta = Vector2.zero;
+        return btn;
     }
 
     private void BuildManagePanel(GameObject container)
@@ -401,13 +604,6 @@ public class MogulApp : PhoneApp
         r.anchorMax = new Vector2(1f, 0.9f);
         r.sizeDelta = Vector2.zero;
         _managePanel.SetActive(false);
-
-        BuildSection(_managePanel, "INVENTORY",
-            new Vector2(0.04f, 0.55f), new Vector2(0.96f, 0.95f),
-            "(no items yet)");
-        BuildSection(_managePanel, "EMPLOYEES",
-            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.5f),
-            "(no employees hired)");
     }
 
     private void BuildCustomizePanel(GameObject container)
@@ -425,7 +621,7 @@ public class MogulApp : PhoneApp
             "(no decorations available yet)");
     }
 
-    private void BuildSection(GameObject parent, string title,
+    private GameObject BuildSection(GameObject parent, string title,
         Vector2 anchorMin, Vector2 anchorMax, string emptyText)
     {
         var box = new GameObject("Section_" + title);
@@ -456,6 +652,114 @@ public class MogulApp : PhoneApp
         er.anchorMin = new Vector2(0.02f, 0.05f);
         er.anchorMax = new Vector2(0.98f, 0.85f);
         er.sizeDelta = Vector2.zero;
+        return box;
+    }
+
+    private void RefreshManagePanel()
+    {
+        if (_managePanel == null) return;
+        for (int i = _managePanel.transform.childCount - 1; i >= 0; i--)
+            GameObject.Destroy(_managePanel.transform.GetChild(i).gameObject);
+
+        BuildInventorySection();
+        BuildGrowSection();
+        BuildEmployeeSection();
+    }
+
+    private void BuildInventorySection()
+    {
+        var box = BuildSection(_managePanel, "INVENTORY",
+            new Vector2(0.04f, 0.62f), new Vector2(0.96f, 0.95f),
+            "");
+
+        string text = BuildInventoryText();
+        var stockObj = MakeText(box, "Stock", text);
+        var stockText = stockObj.GetComponent<Text>();
+        stockText.fontSize = 11;
+        stockText.color = ColorMuted;
+        stockText.alignment = TextAnchor.UpperLeft;
+        stockText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        stockText.verticalOverflow = VerticalWrapMode.Truncate;
+        var sr = stockObj.GetComponent<RectTransform>();
+        sr.anchorMin = new Vector2(0.03f, 0.08f);
+        sr.anchorMax = new Vector2(0.97f, 0.82f);
+        sr.sizeDelta = Vector2.zero;
+    }
+
+    private string BuildInventoryText()
+    {
+        var lines = new System.Collections.Generic.List<string>();
+
+        if (LocationSpawner.TryGetSpawnedBuilding(_detailLocationId, out var buildingRoot) && buildingRoot != null)
+        {
+            var stock = StorageScanner.Scan(buildingRoot);
+            for (int i = 0; i < stock.Count && lines.Count < 6; i++)
+            {
+                var item = stock[i];
+                lines.Add($"{item.DisplayName} · {item.QualityName} · {item.TotalPackages} pkg · ${item.Price:0.##}");
+            }
+            if (stock.Count > 6)
+                lines.Add($"+ {stock.Count - 6} more stored products");
+        }
+
+        int ogKush = EmployeeSystem.GetVirtualInventory(_detailLocationId, EmployeeProduction.TestBudtenderProductId);
+        if (ogKush > 0)
+            lines.Add($"Virtual: OG Kush · Test Grow · {ogKush} pkg");
+
+        return lines.Count == 0 ? "(no stored or virtual stock yet)" : string.Join("\n", lines);
+    }
+
+    private void BuildGrowSection()
+    {
+        BuildSection(_managePanel, "GROW",
+            new Vector2(0.04f, 0.43f), new Vector2(0.96f, 0.59f),
+            EmployeeSystem.GetBudtenderGrowStatus(_detailLocationId));
+    }
+
+    private void BuildEmployeeSection()
+    {
+        var box = BuildSection(_managePanel, "EMPLOYEES",
+            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.4f),
+            "");
+
+        var employees = EmployeeSystem.GetEmployees(_detailLocationId);
+        string roster = employees.Count == 0 ? "(no employees hired)" : "";
+        for (int i = 0; i < employees.Count; i++)
+        {
+            if (i > 0) roster += "\n";
+            roster += $"{employees[i].Role}: {employees[i].DisplayName}";
+        }
+
+        var rosterObj = MakeText(box, "Roster", roster);
+        var rosterText = rosterObj.GetComponent<Text>();
+        rosterText.fontSize = 12;
+        rosterText.color = ColorMuted;
+        rosterText.alignment = TextAnchor.UpperLeft;
+        rosterText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        rosterText.verticalOverflow = VerticalWrapMode.Truncate;
+        var rr = rosterObj.GetComponent<RectTransform>();
+        rr.anchorMin = new Vector2(0.03f, 0.34f);
+        rr.anchorMax = new Vector2(0.58f, 0.82f);
+        rr.sizeDelta = Vector2.zero;
+
+        BuildHireButton(box, EmployeeRole.Cashier, "HIRE CASHIER", 0.64f);
+        BuildHireButton(box, EmployeeRole.Budtender, "HIRE BUDTENDER", 0.42f);
+        BuildHireButton(box, EmployeeRole.Runner, "HIRE RUNNER", 0.20f);
+    }
+
+    private void BuildHireButton(GameObject parent, EmployeeRole role, string label, float yMin)
+    {
+        bool hired = EmployeeSystem.HasRole(_detailLocationId, role);
+        BuildButton(parent, "Hire_" + role, hired ? role.ToString().ToUpper() + " HIRED" : label,
+            new Vector2(0.62f, yMin), new Vector2(0.96f, yMin + 0.16f),
+            hired ? ColorRowOwned : ColorGold,
+            hired ? ColorMuted : ColorDark,
+            () =>
+            {
+                if (EmployeeSystem.HasRole(_detailLocationId, role)) return;
+                EmployeeSystem.RequestHire(_detailLocationId, role);
+                RefreshManagePanel();
+            });
     }
 
     private void OpenSubview(View view, string locationId)
@@ -467,21 +771,27 @@ public class MogulApp : PhoneApp
     private void ShowView(View view)
     {
         _currentView = view;
-        if (_listPanel != null)      _listPanel.SetActive(view == View.List);
+        bool topLevel = view == View.List;
+        if (_tabBar != null)         _tabBar.SetActive(topLevel);
+        if (_listPanel != null)      _listPanel.SetActive(topLevel && _mainTab == MainTab.Properties);
+        if (_questPanel != null)     _questPanel.SetActive(topLevel && _mainTab == MainTab.Quests);
         if (_managePanel != null)    _managePanel.SetActive(view == View.Manage);
         if (_customizePanel != null) _customizePanel.SetActive(view == View.Customize);
-        if (_backButton != null)     _backButton.SetActive(view != View.List);
+        if (_backButton != null)     _backButton.SetActive(!topLevel);
+        RefreshTabs();
 
         var loc = string.IsNullOrEmpty(_detailLocationId) ? null : PropertySystem.Find(_detailLocationId);
         switch (view)
         {
             case View.List:
-                _titleText.text = "MOGUL";
+                _titleText.text = _mainTab == MainTab.Properties ? "MOGUL  ·  PROPERTIES" : "MOGUL  ·  QUESTS";
                 _selectedRowId = null;
-                RefreshList();
+                if (_mainTab == MainTab.Properties) RefreshList();
+                else RefreshQuestPanel();
                 break;
             case View.Manage:
                 _titleText.text = (loc != null ? loc.Name.ToUpper() : "") + "  ·  MANAGE";
+                RefreshManagePanel();
                 break;
             case View.Customize:
                 _titleText.text = (loc != null ? loc.Name.ToUpper() : "") + "  ·  CUSTOMIZE";

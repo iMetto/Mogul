@@ -35,6 +35,7 @@ public static class LocationSpawner
         _spawned.Clear();
         _navBuilders.Clear();
         _rackObjects.Clear();
+        EmployeeSystem.ClearSpawned();
         CustomerManager.ClearQueueCache();
         SellDesk.ClearSpawned();
     }
@@ -98,19 +99,40 @@ public static class LocationSpawner
                     });
 
                 var locId = location.Id;
-                _rackObjects[locId] = new List<GameObject>();
-                foreach (var rack in location.StorageRacks)
+                var existingRacks = GetLiveRackObjects(locId);
+                if (existingRacks.Count > 0)
                 {
-                    var pos = rack.LocalPos + new Vector3(0f, 0.5f, 0f);
-                    placer.Place(rack.Prefab, pos, rack.Rotation, networked: true,
-                        onReady: rackGo =>
+                    _rackObjects[locId] = existingRacks;
+                    foreach (var rackGo in existingRacks)
+                        rackGo.transform.SetParent(go.transform, true);
+                }
+                else
+                {
+                    _rackObjects[locId] = new List<GameObject>();
+                    foreach (var rack in location.StorageRacks)
+                    {
+                        var pos = rack.LocalPos + new Vector3(0f, 0.5f, 0f);
+                        placer.Place(rack.Prefab, pos, rack.Rotation, networked: true,
+                            onReady: rackGo =>
+                            {
+                                if (_rackObjects.TryGetValue(locId, out var list))
+                                    list.Add(rackGo);
+                            });
+                    }
+                }
+                if (existingRacks.Count > 0 && existingRacks.Count < location.StorageRacks.Length)
+                {
+                    for (int i = existingRacks.Count; i < location.StorageRacks.Length; i++)
+                    {
+                        var rack = location.StorageRacks[i];
+                        var pos = rack.LocalPos + new Vector3(0f, 0.5f, 0f);
+                        placer.Place(rack.Prefab, pos, rack.Rotation, networked: true,
+                            onReady: rackGo =>
                         {
                             if (_rackObjects.TryGetValue(locId, out var list))
                                 list.Add(rackGo);
-                            var comps = rackGo.GetComponents<UnityEngine.Component>();
-                            var names = string.Join(", ", System.Linq.Enumerable.Select(comps, c => c?.GetType().Name ?? "null"));
-                            MelonLogger.Msg($"[Mogul] Rack ready for {locId}: {rackGo.name} | components: {names}");
                         });
+                    }
                 }
             }
             var navBuilder = builder.CreateNavigationBuilder();
@@ -118,8 +140,6 @@ public static class LocationSpawner
             _navBuilders[location.Id] = navBuilder;
             _spawned[location.Id] = go;
             OnBuildingReady?.Invoke(location.Id, go);
-
-            MelonLogger.Msg($"[Mogul] Spawned {location.Name} at {location.WorldPosition}");
         }
         catch (Exception ex)
         {
@@ -139,12 +159,13 @@ public static class LocationSpawner
         }
 
         CustomerManager.EvictFromLocation(locationId);
+        EmployeeSystem.EvictFromLocation(locationId);
+        PreserveRacksForRebuild(locationId);
 
         if (_spawned.TryGetValue(locationId, out var existing) && existing != null)
             UnityEngine.Object.Destroy(existing);
         _spawned.Remove(locationId);
         _navBuilders.Remove(locationId);
-        _rackObjects.Remove(locationId);
 
         SellDesk.ClearForLocation(locationId);
 
@@ -160,6 +181,28 @@ public static class LocationSpawner
 
     public static bool TryGetNavigationBuilder(string locationId, out NavigationBuilder nb)
     => _navBuilders.TryGetValue(locationId, out nb);
+
+    private static List<GameObject> GetLiveRackObjects(string locationId)
+    {
+        if (!_rackObjects.TryGetValue(locationId, out var racks) || racks == null)
+            return new List<GameObject>();
+        racks.RemoveAll(r => r == null);
+        return racks;
+    }
+
+    private static void PreserveRacksForRebuild(string locationId)
+    {
+        var racks = GetLiveRackObjects(locationId);
+        if (racks.Count == 0)
+        {
+            _rackObjects.Remove(locationId);
+            return;
+        }
+
+        foreach (var rack in racks)
+            rack.transform.SetParent(null, true);
+        _rackObjects[locationId] = racks;
+    }
 
 
     private static BuildingDesign ApplyDesignOverrides(BuildingDesign design, BuildingOverrides ov)

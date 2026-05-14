@@ -21,6 +21,7 @@ public class Core : MelonMod
         LocationSpawner.Initialize();
         SellDesk.Initialize();
         CustomerManager.Initialize();
+        EmployeeSystem.Initialize();
         BuildingPreview.RegisterConsoleCommands();
     }
 
@@ -35,29 +36,11 @@ public class Core : MelonMod
         if (sceneName == "Main")
         {
             LocationSpawner.ClearSpawned();
+            EmployeeSystem.ClearSpawned();
             LocationSpawner.SyncSpawns();
             SellDesk.SyncDesks();
+            EmployeeSystem.SyncAll();
         }
-    }
-
-    private void DumpFishNetPrefabs()
-    {
-        try
-        {
-            var nm = Il2CppFishNet.InstanceFinder.NetworkManager;
-            if (nm == null) { LoggerInstance.Msg("[Prefabs] NetworkManager null"); return; }
-            var po = nm.GetPrefabObjects<Il2CppFishNet.Managing.Object.PrefabObjects>(0, false);
-            if (po == null) { LoggerInstance.Msg("[Prefabs] PrefabObjects null"); return; }
-            int count = po.GetObjectCount();
-            LoggerInstance.Msg($"[Prefabs] {count} registered prefabs:");
-            for (int i = 0; i < count; i++)
-            {
-                var no = po.GetObject(true, i);
-                if (no?.gameObject != null)
-                    LoggerInstance.Msg($"[Prefabs]  [{i}] {no.gameObject.name}");
-            }
-        }
-        catch (Exception ex) { LoggerInstance.Msg($"[Prefabs] dump failed: {ex.Message}"); }
     }
 
     public override void OnGUI()
@@ -72,6 +55,7 @@ public class Core : MelonMod
         var playerPos = Player.Local?.Position;
         if (playerPos.HasValue)
             CustomerManager.Tick(playerPos.Value);
+        EmployeeSystem.Tick();
 
         if (Input.GetKeyDown(KeyCode.F4))
         {
@@ -80,47 +64,31 @@ public class Core : MelonMod
             LoggerInstance.Msg("[Mogul] Debug: purchased loc_westville_01, teleporting to bungalow");
         }
 
-        if (Input.GetKeyDown(KeyCode.F7))
-        {
-            // Cycle reach to the next tier floor so you can test budget/behaviour per tier.
-            // Each press jumps to the next tier. Wraps back to 0 after Legend.
-            int[] tierFloors = { 0, 10_001, 250_001, 1_000_001, 10_000_001, 50_000_001, 100_000_001, 500_000_001 };
-            int current = MogulNetwork.Data.Reach;
-            int next = tierFloors[0];
-            for (int i = 0; i < tierFloors.Length; i++)
-                if (current < tierFloors[i]) { next = tierFloors[i]; break; }
-
-            MogulNetwork.RequestAction(MogulActions.AddReach, (next - current).ToString());
-
-            var tier = ReachSystem.GetTier(next);
-            var rng  = new System.Random(42);
-            var (min, max) = ReachSystem.GetBudgetRange(tier, rng);
-            LoggerInstance.Msg($"[Reach] Set to {ReachSystem.FormatReach(next)} → {ReachSystem.GetTierName(tier)}  normal ${min:F0}–${max:F0}  outlier (20%) up to ${max * 2f:F0}");
-        }
-
-        if (Input.GetKeyDown(KeyCode.F8))
-        {
-            if (BuildingCustomizerUI.IsVisible)
-            {
-                BuildingCustomizerUI.Hide();
-            }
-            else
-            {
-                var pos = Player.Local?.Position;
-                if (pos.HasValue && LocationGeometry.TryFindNearestLocation(pos.Value, out var loc))
-                    BuildingCustomizerUI.ShowForLocation(loc.Id, loc.Name);
-                else
-                    LoggerInstance.Msg("[Mogul] No owned+spawned location nearby for customiser");
-            }
-        }
-
         if (Input.GetKeyDown(KeyCode.F5))
         {
-            var pos = Player.Local?.Position;
+            var player = Player.Local;
+            var pos = player?.Position;
             if (pos.HasValue)
+            {
                 LoggerInstance.Msg($"[POS] X={pos.Value.x:F2}  Y={pos.Value.y:F2}  Z={pos.Value.z:F2}");
-            MogulNetwork.DumpStoragePrefabs();
-            DumpFishNetPrefabs();
+                var yaw = player.Transform != null ? player.Transform.eulerAngles.y : 0f;
+                LoggerInstance.Msg($"[POS] Yaw={yaw:F1}");
+                if (LocationGeometry.TryFindNearestLocation(pos.Value, out var loc))
+                {
+                    if (LocationSpawner.TryGetSpawnedBuilding(loc.Id, out var root) && root != null)
+                    {
+                        var local = root.transform.InverseTransformPoint(pos.Value);
+                        var localForward = root.transform.InverseTransformDirection(player.Transform.forward);
+                        var localYaw = Mathf.Atan2(localForward.x, localForward.z) * Mathf.Rad2Deg;
+                        LoggerInstance.Msg($"[POS] {loc.Id} local=({local.x:F2}, {local.y:F2}, {local.z:F2}) localYaw={localYaw:F1}");
+                    }
+                    else
+                    {
+                        var local = pos.Value - loc.WorldPosition;
+                        LoggerInstance.Msg($"[POS] {loc.Id} approxLocal=({local.x:F2}, {local.y:F2}, {local.z:F2})");
+                    }
+                }
+            }
         }
 
         if (Input.GetKeyDown(KeyCode.F6))

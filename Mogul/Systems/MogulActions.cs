@@ -14,8 +14,11 @@ public static class MogulActions
     public const string PurchaseWithDesign = "purchase_with_design";
     public const string SetActiveQuest = "set_quest";
     public const string AdvanceQuest = "advance_quest";
+    public const string CompleteQuest = "complete_quest";
     public const string AddRegisterSale = "add_register_sale";
     public const string CollectRegister = "collect_register";
+    public const string HireEmployee = "hire_employee";
+    public const string AddVirtualInventory = "add_virtual_inventory";
 }
 
 // P2P message sent from client → host to request a state change.

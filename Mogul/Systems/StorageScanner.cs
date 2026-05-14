@@ -72,7 +72,6 @@ public static class StorageScanner
                                 var eff = def.Properties[ei];
                                 if (eff != null)
                                 {
-                                    MelonLogger.Msg($"[Mogul:EffectName] product={def.ID} effect[{ei}]={eff.name}");
                                     effectIds.Add(eff.name.ToLower());
                                 }
                             }
@@ -126,10 +125,18 @@ public static class StorageScanner
                 if (def?.ID != productId) continue;
                 if ((int)product.Quality != qualityLevel) continue;
 
-                if (slot.Quantity <= 1)
-                    slot.ClearStoredInstance(false);
-                else
-                    slot.ChangeQuantity(-1);
+                try
+                {
+                    if (slot.Quantity <= 1)
+                        slot.ClearStoredInstance(false);
+                    else
+                        slot.ChangeQuantity(-1);
+                }
+                catch (System.Exception ex)
+                {
+                    MelonLogger.Warning($"[Mogul] Storage removal failed for {productId}: {ex.Message}");
+                    return false;
+                }
 
                 return true;
             }

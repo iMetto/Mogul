@@ -1,0 +1,21 @@
+CashRegister
+cash register
+RegisterBalance
+RegisterInteractable
+Checkout
+CheckoutCounter
+CheckoutCounterInstance
+CheckoutProcess
+DepositToRegister
+CashRegister.glb
+PrefabRef
+PrefabPlacer
+Prefabs.CashRegister
+Budtender
+Seller
+Cashier
+IsStaffed
+counterProducts
+RegisterFloatingText
+RegisterBalance
+CheckoutArrivalTime

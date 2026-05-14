@@ -155,6 +155,24 @@ npc.VoiceOverEmitter?.Play(EVOLineType.Angry);      // if dismissed rudely
 npc.DialogueHandler?.WorldspaceRend?.ShowText("Anything good today?", 3f);
 ```
 
+## 4.1 Worker NPC Appearance
+
+OTC's `BudtenderSpawner` confirms the right approach for custom staff: spawn a
+CivilianNPC, then apply deterministic role-specific avatar settings. It does not
+require vanilla `Employee` setup for visible staff.
+
+Mogul worker spawn path:
+
+- `CustomerSpawner.SpawnWorkerNPC(...)`
+- `EmployeeSystem.SyncLocation(...)`
+- `EmployeeRole.Cashier`, `EmployeeRole.Budtender`, `EmployeeRole.Runner`
+
+Workers use cap-friendly hair, a face layer, initialized eye fields, role-colored
+tucked shirts/caps, dark jeans, and sneakers. See:
+
+- `docs/research/otc_budtender_reference.md`
+- `Mogul/Systems/CustomerSpawner.cs`
+
 **Animation triggers:**
 ```csharp
 npc.SendAnimationTrigger("ThumbsUp");

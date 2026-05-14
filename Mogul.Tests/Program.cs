@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Mogul.Data;
 using Mogul.Systems;
 
 namespace Mogul.Tests;
@@ -19,6 +20,10 @@ internal static class Program
         Run("purchase decisions are deterministic for the same seed", PurchaseDecisionsAreDeterministic);
         Run("selected product quality names track current labels", SelectedProductQualityNames);
         Run("storage product quality names track current labels", StorageProductQualityNames);
+        Run("budtender production is 20 OG Kush per elapsed day", BudtenderProductionScalesByElapsedDays);
+        Run("non-budtender roles do not produce OG Kush", NonBudtendersDoNotProduce);
+        Run("budtender daily yield is zero without budtenders", BudtenderDailyYieldRequiresBudtender);
+        Run("quest progress reads owned properties and employees", QuestProgressReadsSaveData);
 
         Console.WriteLine();
         Console.WriteLine($"Passed: {_passed}");
@@ -158,6 +163,62 @@ internal static class Program
         AssertEqual("Premium", new StorageProduct { QualityLevel = 3 }.QualityName);
         AssertEqual("Heavenly", new StorageProduct { QualityLevel = 4 }.QualityName);
         AssertEqual("Unknown", new StorageProduct { QualityLevel = 99 }.QualityName);
+    }
+
+    private static void BudtenderProductionScalesByElapsedDays()
+    {
+        var employees = new List<HiredEmployeeData>
+        {
+            new() { Id = "b1", Role = EmployeeRole.Budtender, DisplayName = "Bud" },
+            new() { Id = "c1", Role = EmployeeRole.Cashier, DisplayName = "Cash" },
+        };
+
+        AssertEqual(0, EmployeeProduction.CalculateBudtenderYield(employees, 0));
+        AssertEqual(20, EmployeeProduction.CalculateBudtenderYield(employees, 1));
+        AssertEqual(60, EmployeeProduction.CalculateBudtenderYield(employees, 3));
+    }
+
+    private static void NonBudtendersDoNotProduce()
+    {
+        var employees = new List<HiredEmployeeData>
+        {
+            new() { Id = "c1", Role = EmployeeRole.Cashier, DisplayName = "Cash" },
+            new() { Id = "r1", Role = EmployeeRole.Runner, DisplayName = "Run" },
+        };
+
+        AssertEqual(0, EmployeeProduction.CalculateBudtenderYield(employees, 5));
+    }
+
+    private static void BudtenderDailyYieldRequiresBudtender()
+    {
+        AssertEqual(0, EmployeeProduction.GetBudtenderDailyYield(0));
+        AssertEqual(20, EmployeeProduction.GetBudtenderDailyYield(1));
+        AssertEqual(40, EmployeeProduction.GetBudtenderDailyYield(2));
+    }
+
+    private static void QuestProgressReadsSaveData()
+    {
+        var data = new MogulSaveData
+        {
+            RegisteredLocationIds = new List<string> { "loc_westville_01" },
+            LocationEmployees = new Dictionary<string, List<HiredEmployeeData>>
+            {
+                ["loc_westville_01"] = new()
+                {
+                    new HiredEmployeeData { Id = "c1", Role = EmployeeRole.Cashier, DisplayName = "Cash" },
+                },
+            },
+        };
+
+        var propertyQuest = MogulQuestSystem.Find("first_property");
+        var cashierQuest = MogulQuestSystem.Find("hire_cashier");
+        var budtenderQuest = MogulQuestSystem.Find("hire_budtender");
+
+        AssertEqual(1, MogulQuestSystem.GetProgress(propertyQuest, data));
+        AssertEqual(1, MogulQuestSystem.GetProgress(cashierQuest, data));
+        AssertEqual(0, MogulQuestSystem.GetProgress(budtenderQuest, data));
+        AssertTrue(MogulQuestSystem.IsComplete(propertyQuest, data), "owned property quest should be complete");
+        AssertTrue(!MogulQuestSystem.IsComplete(budtenderQuest, data), "budtender quest should not be complete");
     }
 
 
