@@ -30,6 +30,7 @@ internals, and manual testing.
 - `docs/research/rebuild_lifecycle.md` - customization rebuild notes, rack preservation,
   direct employee placement, cashier anchor math, and grow tent respawn flow.
 - `docs/research/quests.md` - Mogul quest layer and S1API/vanilla quest integration notes.
+- `docs/research/map_pins.md` - Mogul/OTC map POI pin implementation notes.
 - `docs/research/quest_task_hooks.md` - new quest/task backend, unlock flags, and
   NPC/sale/body hook leads.
 - `docs/research/strain_mixing.md` - vanilla ProductManager mixing/product

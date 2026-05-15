@@ -26,7 +26,7 @@ public class MogulApp : PhoneApp
     private static readonly Color ColorDark     = new Color(0.05f, 0.05f, 0.05f, 1f);
     private static readonly Color ColorAccent   = new Color(0.30f, 0.55f, 0.85f, 1f);
 
-    private enum MainTab { Properties, Quests }
+    private enum MainTab { Properties, Orders, Quests }
     private enum View { List, Manage, Customize }
 
     private Font _font;
@@ -35,13 +35,16 @@ public class MogulApp : PhoneApp
     private GameObject _backButton;
     private GameObject _tabBar;
     private GameObject _propertiesTabButton;
+    private GameObject _ordersTabButton;
     private GameObject _questsTabButton;
 
     private GameObject _listPanel;
+    private GameObject _ordersPanel;
     private GameObject _questPanel;
     private GameObject _managePanel;
     private GameObject _customizePanel;
     private RectTransform _listContent;
+    private RectTransform _ordersContent;
     private RectTransform _questContent;
 
     private View _currentView = View.List;
@@ -60,6 +63,7 @@ public class MogulApp : PhoneApp
             BuildHeader(container);
             BuildTabBar(container);
             BuildListPanel(container);
+            BuildOrdersPanel(container);
             BuildQuestPanel(container);
             BuildManagePanel(container);
             BuildCustomizePanel(container);
@@ -69,6 +73,7 @@ public class MogulApp : PhoneApp
             {
                 RefreshHeader();
                 if (_currentView == View.List && _mainTab == MainTab.Properties) RefreshList();
+                if (_currentView == View.List && _mainTab == MainTab.Orders) RefreshOrdersPanel();
                 if (_currentView == View.List && _mainTab == MainTab.Quests) RefreshQuestPanel();
                 if (_currentView == View.Manage) RefreshManagePanel();
             };
@@ -152,12 +157,17 @@ public class MogulApp : PhoneApp
         _tabBar.AddComponent<Image>().color = ColorBg;
 
         _propertiesTabButton = BuildButton(_tabBar, "Tab_Properties", "PROPERTIES",
-            new Vector2(0.04f, 0.16f), new Vector2(0.49f, 0.86f),
+            new Vector2(0.03f, 0.16f), new Vector2(0.32f, 0.86f),
             ColorGold, ColorDark,
             () => SelectMainTab(MainTab.Properties));
 
+        _ordersTabButton = BuildButton(_tabBar, "Tab_Orders", "ORDERS",
+            new Vector2(0.355f, 0.16f), new Vector2(0.645f, 0.86f),
+            ColorRow, ColorMuted,
+            () => SelectMainTab(MainTab.Orders));
+
         _questsTabButton = BuildButton(_tabBar, "Tab_Quests", "QUESTS",
-            new Vector2(0.51f, 0.16f), new Vector2(0.96f, 0.86f),
+            new Vector2(0.68f, 0.16f), new Vector2(0.97f, 0.86f),
             ColorRow, ColorMuted,
             () => SelectMainTab(MainTab.Quests));
     }
@@ -181,6 +191,7 @@ public class MogulApp : PhoneApp
         if (_propertiesTabButton != null)
             _propertiesTabButton.SetActive(propertiesUnlocked);
         SetTabVisual(_propertiesTabButton, _mainTab == MainTab.Properties);
+        SetTabVisual(_ordersTabButton, _mainTab == MainTab.Orders);
         SetTabVisual(_questsTabButton, _mainTab == MainTab.Quests);
     }
 
@@ -321,6 +332,62 @@ public class MogulApp : PhoneApp
         RefreshQuestPanel();
     }
 
+    private void BuildOrdersPanel(GameObject container)
+    {
+        _ordersPanel = new GameObject("OrdersPanel");
+        _ordersPanel.transform.SetParent(container.transform, false);
+        var pr = _ordersPanel.AddComponent<RectTransform>();
+        pr.anchorMin = new Vector2(0f, 0f);
+        pr.anchorMax = new Vector2(1f, 0.82f);
+        pr.sizeDelta = Vector2.zero;
+        _ordersPanel.SetActive(false);
+
+        var scrollGo = new GameObject("OrdersScroll");
+        scrollGo.transform.SetParent(_ordersPanel.transform, false);
+        var srRect = scrollGo.AddComponent<RectTransform>();
+        srRect.anchorMin = new Vector2(0.02f, 0.02f);
+        srRect.anchorMax = new Vector2(0.98f, 0.98f);
+        srRect.sizeDelta = Vector2.zero;
+
+        var scrollRect = scrollGo.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 30f;
+
+        var viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollGo.transform, false);
+        var vpRect = viewport.AddComponent<RectTransform>();
+        vpRect.anchorMin = Vector2.zero;
+        vpRect.anchorMax = Vector2.one;
+        vpRect.sizeDelta = Vector2.zero;
+        viewport.AddComponent<RectMask2D>();
+        scrollRect.viewport = vpRect;
+
+        var content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        _ordersContent = content.AddComponent<RectTransform>();
+        _ordersContent.anchorMin = new Vector2(0f, 1f);
+        _ordersContent.anchorMax = new Vector2(1f, 1f);
+        _ordersContent.pivot = new Vector2(0.5f, 1f);
+        _ordersContent.sizeDelta = Vector2.zero;
+
+        var vlg = content.AddComponent<VerticalLayoutGroup>();
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        vlg.childAlignment = TextAnchor.UpperCenter;
+        vlg.spacing = 5f;
+        vlg.padding = new RectOffset(4, 4, 4, 4);
+
+        var fitter = content.AddComponent<ContentSizeFitter>();
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+        scrollRect.content = _ordersContent;
+
+        RefreshOrdersPanel();
+    }
+
     private void RefreshList()
     {
         if (_listContent == null) return;
@@ -349,6 +416,128 @@ public class MogulApp : PhoneApp
         BuildQuestHeader("TASKS");
         foreach (var task in MogulQuestSystem.GetAvailable(MogulObjectiveType.Task, MogulNetwork.Data))
             BuildQuestRow(task);
+    }
+
+    private void RefreshOrdersPanel()
+    {
+        if (_ordersContent == null) return;
+        for (int i = _ordersContent.childCount - 1; i >= 0; i--)
+            GameObject.Destroy(_ordersContent.GetChild(i).gameObject);
+
+        var orders = OnlineOrderSystem.GetOrders();
+        bool any = false;
+        for (int i = orders.Count - 1; i >= 0; i--)
+        {
+            if (orders[i].Status == "Open")
+            {
+                BuildOrderRow(orders[i]);
+                any = true;
+            }
+        }
+
+        if (!any)
+        {
+            var row = new GameObject("OrdersEmpty");
+            row.transform.SetParent(_ordersContent, false);
+            var le = row.AddComponent<LayoutElement>();
+            le.preferredHeight = 80f;
+            le.minHeight = 80f;
+            row.AddComponent<Image>().color = ColorRow;
+            var textObj = MakeText(row, "Text", "No live online orders. Stock an owned location and new buyers will appear.");
+            var text = textObj.GetComponent<Text>();
+            text.fontSize = 12;
+            text.color = ColorMuted;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            var tr = textObj.GetComponent<RectTransform>();
+            tr.anchorMin = new Vector2(0.06f, 0.12f);
+            tr.anchorMax = new Vector2(0.94f, 0.88f);
+            tr.sizeDelta = Vector2.zero;
+        }
+    }
+
+    private void BuildOrderRow(OnlineOrderData order)
+    {
+        var profile = CustomerTypes.Get(order.CustomerTypeId);
+        var loc = PropertySystem.Find(order.LocationId);
+        var row = new GameObject("Order_" + order.Id);
+        row.transform.SetParent(_ordersContent, false);
+        row.AddComponent<Image>().color = ColorRow;
+        var le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = 116f;
+        le.minHeight = 116f;
+
+        var accent = new GameObject("Accent");
+        accent.transform.SetParent(row.transform, false);
+        accent.AddComponent<Image>().color = profile.Type == MogulCustomerType.Importer
+            ? ColorGold
+            : profile.Type == MogulCustomerType.GangLeader ? ColorAccent : ColorMuted;
+        var ar = accent.GetComponent<RectTransform>();
+        ar.anchorMin = new Vector2(0f, 0.1f);
+        ar.anchorMax = new Vector2(0.006f, 0.9f);
+        ar.sizeDelta = Vector2.zero;
+
+        var titleObj = MakeText(row, "Title", $"{profile.DisplayName.ToUpper()} · {order.CustomerName}");
+        var title = titleObj.GetComponent<Text>();
+        title.fontSize = 13;
+        title.fontStyle = FontStyle.Bold;
+        title.color = Color.white;
+        title.alignment = TextAnchor.UpperLeft;
+        var tr = titleObj.GetComponent<RectTransform>();
+        tr.anchorMin = new Vector2(0.025f, 0.70f);
+        tr.anchorMax = new Vector2(0.68f, 0.94f);
+        tr.sizeDelta = Vector2.zero;
+
+        string lineText = BuildOrderLineText(order);
+        var linesObj = MakeText(row, "Lines", lineText);
+        var lines = linesObj.GetComponent<Text>();
+        lines.fontSize = 11;
+        lines.color = new Color(0.84f, 0.84f, 0.84f, 1f);
+        lines.alignment = TextAnchor.UpperLeft;
+        lines.horizontalOverflow = HorizontalWrapMode.Wrap;
+        lines.verticalOverflow = VerticalWrapMode.Truncate;
+        var lr = linesObj.GetComponent<RectTransform>();
+        lr.anchorMin = new Vector2(0.025f, 0.23f);
+        lr.anchorMax = new Vector2(0.66f, 0.70f);
+        lr.sizeDelta = Vector2.zero;
+
+        string locName = loc != null ? loc.Name : order.LocationId;
+        var metaObj = MakeText(row, "Meta",
+            $"{locName} · due day {order.DeadlineDay} {order.DeadlineTime:0000} · ${order.Total + order.Tip:0}");
+        var meta = metaObj.GetComponent<Text>();
+        meta.fontSize = 11;
+        meta.color = ColorMuted;
+        meta.alignment = TextAnchor.UpperLeft;
+        var mr = metaObj.GetComponent<RectTransform>();
+        mr.anchorMin = new Vector2(0.025f, 0.05f);
+        mr.anchorMax = new Vector2(0.66f, 0.23f);
+        mr.sizeDelta = Vector2.zero;
+
+        BuildButton(row, "Fulfill", "FULFILL",
+            new Vector2(0.70f, 0.50f), new Vector2(0.96f, 0.82f),
+            ColorGold, ColorDark,
+            () =>
+            {
+                MogulNetwork.RequestAction(MogulActions.FulfillOnlineOrder, order.Id);
+                RefreshOrdersPanel();
+            });
+
+        BuildButton(row, "Dismiss", "DECLINE",
+            new Vector2(0.70f, 0.16f), new Vector2(0.96f, 0.44f),
+            ColorRowSel, ColorMuted,
+            () =>
+            {
+                MogulNetwork.RequestAction(MogulActions.DismissOnlineOrder, order.Id);
+                RefreshOrdersPanel();
+            });
+    }
+
+    private static string BuildOrderLineText(OnlineOrderData order)
+    {
+        var lines = new List<string>();
+        foreach (var line in order.Lines)
+            lines.Add($"{line.Quantity}x {line.DisplayName} · Q{line.QualityLevel} · ${line.Price:0.##}");
+        return string.Join("\n", lines);
     }
 
     private void BuildQuestHeader(string label)
@@ -709,55 +898,170 @@ public class MogulApp : PhoneApp
     private void BuildInventorySection()
     {
         var box = BuildSection(_managePanel, "INVENTORY",
-            new Vector2(0.04f, 0.72f), new Vector2(0.96f, 0.95f),
+            new Vector2(0.04f, 0.52f), new Vector2(0.96f, 0.95f),
             "");
 
-        string text = BuildInventoryText();
-        var stockObj = MakeText(box, "Stock", text);
-        var stockText = stockObj.GetComponent<Text>();
-        stockText.fontSize = 11;
-        stockText.color = ColorMuted;
-        stockText.alignment = TextAnchor.UpperLeft;
-        stockText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        stockText.verticalOverflow = VerticalWrapMode.Truncate;
-        var sr = stockObj.GetComponent<RectTransform>();
-        sr.anchorMin = new Vector2(0.03f, 0.08f);
-        sr.anchorMax = new Vector2(0.97f, 0.82f);
-        sr.sizeDelta = Vector2.zero;
+        float mult = PricingSystem.GetLocationMultiplier(_detailLocationId);
+        var globalObj = MakeText(box, "GlobalPrice", $"Store multiplier  x{mult:0.0}");
+        var globalText = globalObj.GetComponent<Text>();
+        globalText.fontSize = 11;
+        globalText.fontStyle = FontStyle.Bold;
+        globalText.color = ColorGold;
+        globalText.alignment = TextAnchor.MiddleLeft;
+        var gr = globalObj.GetComponent<RectTransform>();
+        gr.anchorMin = new Vector2(0.03f, 0.75f);
+        gr.anchorMax = new Vector2(0.45f, 0.88f);
+        gr.sizeDelta = Vector2.zero;
+
+        BuildButton(box, "StoreMultDown", "-0.1",
+            new Vector2(0.48f, 0.76f), new Vector2(0.58f, 0.88f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                PricingSystem.RequestSetLocationMultiplier(_detailLocationId, mult - PricingSystem.MultiplierStep);
+                RefreshManagePanel();
+            });
+
+        BuildButton(box, "StoreMultUp", "+0.1",
+            new Vector2(0.60f, 0.76f), new Vector2(0.70f, 0.88f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                PricingSystem.RequestSetLocationMultiplier(_detailLocationId, mult + PricingSystem.MultiplierStep);
+                RefreshManagePanel();
+            });
+
+        BuildInventoryPricingRows(box);
     }
 
-    private string BuildInventoryText()
+    private void BuildInventoryPricingRows(GameObject box)
     {
-        var lines = new System.Collections.Generic.List<string>();
+        var stock = new List<StorageProduct>();
 
         if (LocationSpawner.TryGetSpawnedBuilding(_detailLocationId, out var buildingRoot) && buildingRoot != null)
+            stock = StorageScanner.Scan(buildingRoot);
+
+        if (stock.Count == 0)
         {
-            var stock = StorageScanner.Scan(buildingRoot);
-            for (int i = 0; i < stock.Count && lines.Count < 6; i++)
-            {
-                var item = stock[i];
-                lines.Add($"{item.DisplayName} · {item.QualityName} · {item.TotalPackages} pkg · ${item.Price:0.##}");
-            }
-            if (stock.Count > 6)
-                lines.Add($"+ {stock.Count - 6} more stored products");
+            var emptyObj = MakeText(box, "StockEmpty", "(no stocked products in this location)");
+            var empty = emptyObj.GetComponent<Text>();
+            empty.fontSize = 12;
+            empty.color = ColorMuted;
+            empty.alignment = TextAnchor.MiddleCenter;
+            var er = emptyObj.GetComponent<RectTransform>();
+            er.anchorMin = new Vector2(0.03f, 0.08f);
+            er.anchorMax = new Vector2(0.97f, 0.70f);
+            er.sizeDelta = Vector2.zero;
+            return;
         }
 
-        if (MogulNetwork.Data.LocationVirtualInventory.TryGetValue(_detailLocationId, out var virtualInventory))
+        int count = Math.Min(stock.Count, 3);
+        for (int i = 0; i < count; i++)
         {
-            foreach (var kvp in virtualInventory)
-            {
-                if (kvp.Value > 0)
-                    lines.Add($"Virtual: {StrainMixingSystem.GetProductDisplayName(kvp.Key)} · Budtender · {kvp.Value} pkg");
-            }
+            float top = 0.70f - i * 0.20f;
+            BuildInventoryPricingRow(box, stock[i], top);
         }
 
-        return lines.Count == 0 ? "(no stored or virtual stock yet)" : string.Join("\n", lines);
+        if (stock.Count > count)
+        {
+            var moreObj = MakeText(box, "MoreStock", $"+ {stock.Count - count} more products");
+            var more = moreObj.GetComponent<Text>();
+            more.fontSize = 10;
+            more.color = ColorMuted;
+            more.alignment = TextAnchor.MiddleLeft;
+            var mr = moreObj.GetComponent<RectTransform>();
+            mr.anchorMin = new Vector2(0.03f, 0.03f);
+            mr.anchorMax = new Vector2(0.50f, 0.10f);
+            mr.sizeDelta = Vector2.zero;
+        }
+    }
+
+    private void BuildInventoryPricingRow(GameObject parent, StorageProduct item, float top)
+    {
+        float bottom = top - 0.17f;
+        var row = new GameObject("PriceRow_" + item.ProductId + "_" + item.QualityLevel);
+        row.transform.SetParent(parent.transform, false);
+        row.AddComponent<Image>().color = ColorHeader;
+        var rr = row.AddComponent<RectTransform>();
+        rr.anchorMin = new Vector2(0.03f, bottom);
+        rr.anchorMax = new Vector2(0.97f, top);
+        rr.sizeDelta = Vector2.zero;
+
+        var nameObj = MakeText(row, "Name", $"{item.DisplayName} · {item.QualityName} · {item.TotalPackages} pkg");
+        var name = nameObj.GetComponent<Text>();
+        name.fontSize = 10;
+        name.fontStyle = FontStyle.Bold;
+        name.color = Color.white;
+        name.alignment = TextAnchor.UpperLeft;
+        var nr = nameObj.GetComponent<RectTransform>();
+        nr.anchorMin = new Vector2(0.02f, 0.54f);
+        nr.anchorMax = new Vector2(0.40f, 0.96f);
+        nr.sizeDelta = Vector2.zero;
+
+        float productMult = PricingSystem.GetProductMultiplier(_detailLocationId, item.ProductId, item.QualityLevel);
+        float manual = PricingSystem.GetManualPrice(_detailLocationId, item.ProductId, item.QualityLevel);
+        string priceLabel = manual >= 0f
+            ? $"Base ${item.BasePrice:0}  ->  Manual ${item.Price:0}"
+            : $"Base ${item.BasePrice:0}  ->  x{productMult:0.0} = ${item.Price:0}";
+        var priceObj = MakeText(row, "Price", priceLabel);
+        var price = priceObj.GetComponent<Text>();
+        price.fontSize = 10;
+        price.color = ColorMuted;
+        price.alignment = TextAnchor.UpperLeft;
+        var pr = priceObj.GetComponent<RectTransform>();
+        pr.anchorMin = new Vector2(0.02f, 0.08f);
+        pr.anchorMax = new Vector2(0.43f, 0.50f);
+        pr.sizeDelta = Vector2.zero;
+
+        BuildButton(row, "ItemMultDown", "-x",
+            new Vector2(0.45f, 0.56f), new Vector2(0.53f, 0.92f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                PricingSystem.RequestSetProductMultiplier(_detailLocationId, item.ProductId, item.QualityLevel, productMult - PricingSystem.MultiplierStep);
+                RefreshManagePanel();
+            });
+        BuildButton(row, "ItemMultUp", "+x",
+            new Vector2(0.54f, 0.56f), new Vector2(0.62f, 0.92f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                PricingSystem.RequestSetProductMultiplier(_detailLocationId, item.ProductId, item.QualityLevel, productMult + PricingSystem.MultiplierStep);
+                RefreshManagePanel();
+            });
+
+        float currentManual = manual >= 0f ? manual : item.Price;
+        BuildButton(row, "PriceDown", "-$",
+            new Vector2(0.66f, 0.56f), new Vector2(0.74f, 0.92f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                PricingSystem.RequestSetManualPrice(_detailLocationId, item.ProductId, item.QualityLevel, currentManual - PricingSystem.PriceStep);
+                RefreshManagePanel();
+            });
+        BuildButton(row, "PriceUp", "+$",
+            new Vector2(0.75f, 0.56f), new Vector2(0.83f, 0.92f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                PricingSystem.RequestSetManualPrice(_detailLocationId, item.ProductId, item.QualityLevel, currentManual + PricingSystem.PriceStep);
+                RefreshManagePanel();
+            });
+        BuildButton(row, "Auto", "AUTO",
+            new Vector2(0.85f, 0.56f), new Vector2(0.98f, 0.92f),
+            manual >= 0f ? ColorAccent : ColorRowOwned,
+            manual >= 0f ? Color.white : ColorMuted,
+            () =>
+            {
+                PricingSystem.RequestClearManualPrice(_detailLocationId, item.ProductId, item.QualityLevel);
+                RefreshManagePanel();
+            });
     }
 
     private void BuildBudtenderOrderSection()
     {
         var box = BuildSection(_managePanel, "ORDERS",
-            new Vector2(0.04f, 0.38f), new Vector2(0.96f, 0.69f),
+            new Vector2(0.04f, 0.30f), new Vector2(0.96f, 0.49f),
             "");
 
         bool hasBudtender = EmployeeSystem.HasRole(_detailLocationId, EmployeeRole.Budtender);
@@ -883,14 +1187,14 @@ public class MogulApp : PhoneApp
     private void BuildGrowSection()
     {
         BuildSection(_managePanel, "GROW",
-            new Vector2(0.04f, 0.28f), new Vector2(0.96f, 0.36f),
+            new Vector2(0.04f, 0.22f), new Vector2(0.96f, 0.28f),
             EmployeeSystem.GetBudtenderGrowStatus(_detailLocationId));
     }
 
     private void BuildEmployeeSection()
     {
         var box = BuildSection(_managePanel, "EMPLOYEES",
-            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.27f),
+            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.20f),
             "");
 
         var employees = EmployeeSystem.GetEmployees(_detailLocationId);
@@ -964,6 +1268,7 @@ public class MogulApp : PhoneApp
         bool topLevel = view == View.List;
         if (_tabBar != null)         _tabBar.SetActive(topLevel);
         if (_listPanel != null)      _listPanel.SetActive(topLevel && _mainTab == MainTab.Properties);
+        if (_ordersPanel != null)    _ordersPanel.SetActive(topLevel && _mainTab == MainTab.Orders);
         if (_questPanel != null)     _questPanel.SetActive(topLevel && _mainTab == MainTab.Quests);
         if (_managePanel != null)    _managePanel.SetActive(view == View.Manage);
         if (_customizePanel != null) _customizePanel.SetActive(view == View.Customize);
@@ -974,9 +1279,12 @@ public class MogulApp : PhoneApp
         switch (view)
         {
             case View.List:
-                _titleText.text = _mainTab == MainTab.Properties ? "MOGUL  ·  PROPERTIES" : "MOGUL  ·  QUESTS";
+                _titleText.text = _mainTab == MainTab.Properties ? "MOGUL  ·  PROPERTIES"
+                    : _mainTab == MainTab.Orders ? "MOGUL  ·  ONLINE ORDERS"
+                    : "MOGUL  ·  QUESTS";
                 _selectedRowId = null;
                 if (_mainTab == MainTab.Properties) RefreshList();
+                else if (_mainTab == MainTab.Orders) RefreshOrdersPanel();
                 else RefreshQuestPanel();
                 break;
             case View.Manage:

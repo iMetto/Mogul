@@ -24,6 +24,13 @@ public static class MogulActions
     public const string CompleteBudtenderOrder = "complete_budtender_order";
     public const string SetObjectPlacement = "set_object_placement";
     public const string ClearObjectPlacements = "clear_object_placements";
+    public const string GenerateOnlineOrder = "generate_online_order";
+    public const string FulfillOnlineOrder = "fulfill_online_order";
+    public const string DismissOnlineOrder = "dismiss_online_order";
+    public const string SetLocationPriceMultiplier = "set_location_price_multiplier";
+    public const string SetProductPriceMultiplier = "set_product_price_multiplier";
+    public const string SetProductManualPrice = "set_product_manual_price";
+    public const string ClearProductManualPrice = "clear_product_manual_price";
 }
 
 // P2P message sent from client → host to request a state change.

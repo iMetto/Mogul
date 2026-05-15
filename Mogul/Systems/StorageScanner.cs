@@ -16,6 +16,7 @@ public class StorageProduct
     public string DisplayName;
     public int QualityLevel;   // 0=Trash 1=Poor 2=Standard 3=Premium 4=Heavenly
     public int TotalPackages;  // packages available across all slots
+    public float BasePrice;     // vanilla/current market price before Mogul location pricing
     public float Price;        // player-set price per unit, falls back to MarketValue
     public List<string> EffectIds = new List<string>();
 
@@ -82,9 +83,11 @@ public static class StorageScanner
                         MelonLogger.Warning($"[Mogul:EffectName] failed reading effects for {def.ID}: {ex.Message}");
                     }
 
-                    float price;
-                    try { price = NetworkSingleton<ProductManager>.Instance?.GetPrice(def) ?? def.MarketValue; }
-                    catch { price = def.MarketValue; }
+                    float basePrice;
+                    try { basePrice = NetworkSingleton<ProductManager>.Instance?.GetPrice(def) ?? def.MarketValue; }
+                    catch { basePrice = def.MarketValue; }
+                    string locationId = LocationIdFromRoot(buildingRoot);
+                    float price = PricingSystem.ResolvePrice(locationId, def.ID, quality, basePrice);
 
                     aggregated[key] = new StorageProduct
                     {
@@ -92,6 +95,7 @@ public static class StorageScanner
                         DisplayName   = def.Name ?? def.ID,
                         QualityLevel  = quality,
                         TotalPackages = slot.Quantity,
+                        BasePrice     = basePrice,
                         Price         = price,
                         EffectIds     = effectIds,
                     };
@@ -194,5 +198,14 @@ public static class StorageScanner
 
         error ??= "no storage accepted product";
         return false;
+    }
+
+    private static string LocationIdFromRoot(GameObject buildingRoot)
+    {
+        if (buildingRoot == null) return "";
+        foreach (var location in PropertySystem.Catalog)
+            if (LocationSpawner.TryGetSpawnedBuilding(location.Id, out var root) && root == buildingRoot)
+                return location.Id;
+        return "";
     }
 }

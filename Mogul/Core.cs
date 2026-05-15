@@ -23,6 +23,7 @@ public class Core : MelonMod
         MogulPlacementSystem.Initialize();
         CustomerManager.Initialize();
         EmployeeSystem.Initialize();
+        MogulMapPins.Initialize();
         BuildingPreview.RegisterConsoleCommands();
     }
 
@@ -41,6 +42,7 @@ public class Core : MelonMod
             LocationSpawner.SyncSpawns();
             SellDesk.SyncDesks();
             EmployeeSystem.SyncAll();
+            MogulMapPins.SyncPins();
         }
     }
 
@@ -58,6 +60,7 @@ public class Core : MelonMod
         if (playerPos.HasValue)
             CustomerManager.Tick(playerPos.Value);
         EmployeeSystem.Tick();
+        OnlineOrderSystem.Tick();
         MogulQuestSystem.Tick();
         MogulPlacementSystem.Tick();
 

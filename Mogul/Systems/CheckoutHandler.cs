@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Mogul.Systems;
 
-public enum CheckoutResult { Sold, NoStock, Dismissed }
+public enum CheckoutResult { Sold, NoStock, Dismissed, Denied }
 
 public static class CheckoutHandler
 {
@@ -91,6 +91,14 @@ public static class CheckoutHandler
     {
         if (!IsOpen) return;
         Close(CheckoutResult.Dismissed);
+    }
+
+    public static void Deny()
+    {
+        if (!IsOpen) return;
+        _customer?.VoiceOverEmitter?.Play(EVOLineType.Annoyed);
+        _customer?.DialogueHandler?.WorldspaceRend?.ShowText("Forget it.", 2f);
+        Close(CheckoutResult.Denied);
     }
 
     private static void Close(CheckoutResult result)

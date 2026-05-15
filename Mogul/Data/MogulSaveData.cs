@@ -18,6 +18,10 @@ public class MogulSaveData
     public Dictionary<string, int> LocationBudtenderProductionDay { get; set; } = new Dictionary<string, int>();
     public Dictionary<string, BudtenderOrderData> LocationBudtenderOrders { get; set; } = new Dictionary<string, BudtenderOrderData>();
     public Dictionary<string, Dictionary<string, MogulObjectPlacementData>> LocationObjectPlacements { get; set; } = new Dictionary<string, Dictionary<string, MogulObjectPlacementData>>();
+    public List<OnlineOrderData> OnlineOrders { get; set; } = new List<OnlineOrderData>();
+    public int OnlineOrderSequence { get; set; } = 0;
+    public Dictionary<string, float> LocationPriceMultipliers { get; set; } = new Dictionary<string, float>();
+    public Dictionary<string, Dictionary<string, ProductPriceData>> LocationProductPrices { get; set; } = new Dictionary<string, Dictionary<string, ProductPriceData>>();
 }
 
 public class BudtenderOrderData
@@ -38,4 +42,35 @@ public class MogulObjectPlacementData
     public float Y { get; set; }
     public float Z { get; set; }
     public float Yaw { get; set; }
+}
+
+public class OnlineOrderData
+{
+    public string Id { get; set; } = "";
+    public string LocationId { get; set; } = "";
+    public string CustomerTypeId { get; set; } = "";
+    public string CustomerName { get; set; } = "";
+    public List<OnlineOrderLineData> Lines { get; set; } = new List<OnlineOrderLineData>();
+    public float Total { get; set; }
+    public float Tip { get; set; }
+    public int CreatedDay { get; set; }
+    public int CreatedTime { get; set; }
+    public int DeadlineDay { get; set; }
+    public int DeadlineTime { get; set; }
+    public string Status { get; set; } = "Open";
+}
+
+public class OnlineOrderLineData
+{
+    public string ProductId { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public int QualityLevel { get; set; }
+    public int Quantity { get; set; }
+    public float Price { get; set; }
+}
+
+public class ProductPriceData
+{
+    public float Multiplier { get; set; } = 1f;
+    public float ManualPrice { get; set; } = -1f;
 }

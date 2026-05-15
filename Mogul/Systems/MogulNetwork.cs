@@ -459,6 +459,88 @@ public static class MogulNetwork
                         changed = _localData.LocationObjectPlacements.Remove(payload);
                     break;
                 }
+
+            case MogulActions.GenerateOnlineOrder:
+                {
+                    changed = OnlineOrderSystem.TryGenerateOrder(_localData, out var order);
+                    if (changed)
+                        MelonLogger.Msg($"[Mogul] Online order {order.Id} created for {order.LocationId}: ${order.Total:F0}");
+                    break;
+                }
+
+            case MogulActions.FulfillOnlineOrder:
+                {
+                    if (OnlineOrderSystem.TryFulfillOrder(_localData, payload, out var error))
+                    {
+                        MelonLogger.Msg($"[Mogul] Online order fulfilled: {payload}");
+                        changed = true;
+                    }
+                    else if (!string.IsNullOrEmpty(error))
+                    {
+                        MelonLogger.Warning($"[Mogul] Online order fulfill failed ({payload}): {error}");
+                    }
+                    break;
+                }
+
+            case MogulActions.DismissOnlineOrder:
+                {
+                    changed = OnlineOrderSystem.TryDismissOrder(_localData, payload);
+                    break;
+                }
+
+            case MogulActions.SetLocationPriceMultiplier:
+                {
+                    var parts = payload.Split(':');
+                    if (parts.Length == 2
+                        && _localData.RegisteredLocationIds.Contains(parts[0])
+                        && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var multiplier))
+                    {
+                        PricingSystem.SetLocationMultiplier(_localData, parts[0], multiplier);
+                        changed = true;
+                    }
+                    break;
+                }
+
+            case MogulActions.SetProductPriceMultiplier:
+                {
+                    var parts = payload.Split(':');
+                    if (parts.Length == 4
+                        && _localData.RegisteredLocationIds.Contains(parts[0])
+                        && int.TryParse(parts[2], out var quality)
+                        && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var multiplier))
+                    {
+                        PricingSystem.SetProductMultiplier(_localData, parts[0], parts[1], quality, multiplier);
+                        changed = true;
+                    }
+                    break;
+                }
+
+            case MogulActions.SetProductManualPrice:
+                {
+                    var parts = payload.Split(':');
+                    if (parts.Length == 4
+                        && _localData.RegisteredLocationIds.Contains(parts[0])
+                        && int.TryParse(parts[2], out var quality)
+                        && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var price))
+                    {
+                        PricingSystem.SetManualPrice(_localData, parts[0], parts[1], quality, price);
+                        changed = true;
+                    }
+                    break;
+                }
+
+            case MogulActions.ClearProductManualPrice:
+                {
+                    var parts = payload.Split(':');
+                    if (parts.Length == 3
+                        && _localData.RegisteredLocationIds.Contains(parts[0])
+                        && int.TryParse(parts[2], out var quality))
+                    {
+                        PricingSystem.ClearManualPrice(_localData, parts[0], parts[1], quality);
+                        changed = true;
+                    }
+                    break;
+                }
         }
 
         if (changed)
@@ -478,6 +560,17 @@ public static class MogulNetwork
         data.LocationBudtenderProductionDay ??= new System.Collections.Generic.Dictionary<string, int>();
         data.LocationBudtenderOrders ??= new System.Collections.Generic.Dictionary<string, BudtenderOrderData>();
         data.LocationObjectPlacements ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, MogulObjectPlacementData>>();
+        data.OnlineOrders ??= new System.Collections.Generic.List<OnlineOrderData>();
+        foreach (var order in data.OnlineOrders)
+            if (order != null)
+                order.Lines ??= new System.Collections.Generic.List<OnlineOrderLineData>();
+        data.LocationPriceMultipliers ??= new System.Collections.Generic.Dictionary<string, float>();
+        data.LocationProductPrices ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, ProductPriceData>>();
+        foreach (var map in data.LocationProductPrices.Values)
+            if (map != null)
+                foreach (var kvp in map)
+                    if (kvp.Value != null)
+                        kvp.Value.Multiplier = PricingSystem.ClampMultiplier(kvp.Value.Multiplier);
     }
 
     private static void Commit()

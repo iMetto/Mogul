@@ -551,10 +551,10 @@ public static class CustomerManager
 
     private static void OnCheckoutClosed(string locationId, CheckoutResult result)
     {
-        // Dismissed = player closed UI with Q, NPC stays waiting — do nothing
+        // Dismissed = player cancelled UI, NPC stays waiting — do nothing
         if (result == CheckoutResult.Dismissed) return;
 
-        // Sold or NoStock = NPC leaves (voice/text already handled by CheckoutHandler)
+        // Sold, denied, or no stock = NPC leaves (voice/text already handled by CheckoutHandler)
         CustomerEntry entry = null;
         foreach (var kvp in _active)
             if (kvp.Value.State == CustomerState.WaitingAtCounter && kvp.Value.LocationId == locationId)
