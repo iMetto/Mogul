@@ -23,7 +23,7 @@ namespace Mogul.UI;
 /// </summary>
 public static class BuildingCustomizerUI
 {
-    private enum Tab { Wall, Floor, Ceiling, Roof, Door, Trim, Lights }
+    private enum Tab { Wall, Floor, Ceiling, Roof, Door, Trim, Lights, Size, Position }
 
     // ── Material option tables ────────────────────────────────────────────────
     // (Label shown in UI, material lookup string passed to Materials.Find, swatch colour)
@@ -209,7 +209,7 @@ public static class BuildingCustomizerUI
         {
             var t = tabs[i];
             var (_, btn, _) = UIFactory.RoundedButtonWithLabel(
-                t.ToString(), t.ToString(), bar.transform, _tabOff, 104f, 30f, 13, Color.white);
+                t.ToString(), t.ToString(), bar.transform, _tabOff, 84f, 30f, 13, Color.white);
             btn.onClick.AddListener((UnityAction)(() => SelectTab(t)));
             _tabBtns[i] = btn;
         }
@@ -367,6 +367,47 @@ public static class BuildingCustomizerUI
                     SwatchRow(o.L, o.S, sel, () => Apply(x => x.LightIntensity = val));
                 }
                 break;
+
+            case Tab.Size:
+                var location = PropertySystem.Find(_locId);
+                if (location == null) break;
+
+                var size = BuildingPreview.GetEffectiveRoomSize(location);
+                SectionHeader($"Current: {size.x:F1}w x {size.z:F1}d x {size.y:F1}h");
+                SizeStepRow("Width -0.5m",  -0.5f,  0f,    0f);
+                SizeStepRow("Width +0.5m",   0.5f,  0f,    0f);
+                SizeStepRow("Depth -0.5m",   0f,   -0.5f,  0f);
+                SizeStepRow("Depth +0.5m",   0f,    0.5f,  0f);
+                SizeStepRow("Height -0.25m", 0f,    0f,   -0.25f);
+                SizeStepRow("Height +0.25m", 0f,    0f,    0.25f);
+                ToggleRow("Reset Size", false, () => Apply(x =>
+                {
+                    x.RoomWidth = null;
+                    x.RoomDepth = null;
+                    x.RoomHeight = null;
+                }));
+                break;
+
+            case Tab.Position:
+                var posLocation = PropertySystem.Find(_locId);
+                if (posLocation == null) break;
+
+                var world = BuildingPreview.GetEffectiveWorldPosition(posLocation);
+                SectionHeader($"Origin: {world.x:F1}, {world.y:F1}, {world.z:F1}");
+                PositionStepRow("X -0.5m", -0.5f, 0f, 0f);
+                PositionStepRow("X +0.5m",  0.5f, 0f, 0f);
+                PositionStepRow("Z -0.5m",  0f, 0f, -0.5f);
+                PositionStepRow("Z +0.5m",  0f, 0f,  0.5f);
+                PositionStepRow("Y -0.25m", 0f, -0.25f, 0f);
+                PositionStepRow("Y +0.25m", 0f,  0.25f, 0f);
+                ToggleRow("Set Origin Here", false, SetOriginHere);
+                ToggleRow("Reset Position", false, () => Apply(x =>
+                {
+                    x.WorldX = null;
+                    x.WorldY = null;
+                    x.WorldZ = null;
+                }));
+                break;
         }
     }
 
@@ -417,6 +458,52 @@ public static class BuildingCustomizerUI
 
         row.GetComponent<Image>().color = on ? _rowOn : _rowOff;
         row.GetComponent<Button>().onClick.AddListener((UnityAction)onClick);
+    }
+
+    private static void SizeStepRow(string label, float widthDelta, float depthDelta, float heightDelta)
+    {
+        ToggleRow(label, false, () =>
+        {
+            var location = PropertySystem.Find(_locId);
+            if (location == null) return;
+            var size = BuildingPreview.GetEffectiveRoomSize(location);
+            Apply(x =>
+            {
+                x.RoomWidth = Mathf.Clamp(size.x + widthDelta, 3f, 30f);
+                x.RoomDepth = Mathf.Clamp(size.z + depthDelta, 3f, 30f);
+                x.RoomHeight = Mathf.Clamp(size.y + heightDelta, 2.2f, 8f);
+            });
+        });
+    }
+
+    private static void PositionStepRow(string label, float xDelta, float yDelta, float zDelta)
+    {
+        ToggleRow(label, false, () =>
+        {
+            var location = PropertySystem.Find(_locId);
+            if (location == null) return;
+            var world = BuildingPreview.GetEffectiveWorldPosition(location);
+            Apply(x =>
+            {
+                x.WorldX = world.x + xDelta;
+                x.WorldY = world.y + yDelta;
+                x.WorldZ = world.z + zDelta;
+            });
+        });
+    }
+
+    private static void SetOriginHere()
+    {
+        var player = Player.Local;
+        if (player == null) return;
+        var pos = player.transform.position;
+
+        Apply(x =>
+        {
+            x.WorldX = pos.x;
+            x.WorldY = pos.y;
+            x.WorldZ = pos.z;
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

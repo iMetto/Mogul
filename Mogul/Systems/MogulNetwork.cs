@@ -210,10 +210,13 @@ public static class MogulNetwork
                     {
                         string locId = payload.Substring(0, sep);
                         string designId = payload.Substring(sep + 1);
+                        if (!PropertySystem.IsPurchasable(locId, _localData))
+                            break;
                         if (!_localData.RegisteredLocationIds.Contains(locId))
                         {
                             _localData.RegisteredLocationIds.Add(locId);
                             _localData.LocationDesigns[locId] = designId;
+                            _localData.LocationObjectPlacements.Remove(locId);
                             changed = true;
                         }
                     }
@@ -252,14 +255,25 @@ public static class MogulNetwork
                     if (MogulQuestSystem.IsClaimed(quest, _localData)) break;
                     if (!MogulQuestSystem.IsComplete(quest, _localData)) break;
 
-                    _localData.CompletedQuestIds.Add(quest.Id);
-                    _localData.Reach += quest.ReachReward;
+                    MogulQuestSystem.Claim(quest, _localData);
                     if (_localData.ActiveQuestId == quest.Id)
                     {
                         _localData.ActiveQuestId = null;
                         _localData.ActiveQuestProgress = 0;
                     }
                     changed = true;
+                    break;
+                }
+
+            case MogulActions.RecordObjectiveEvent:
+                {
+                    int sep = payload.LastIndexOf(':');
+                    if (sep > 0 && int.TryParse(payload.Substring(sep + 1), out int amount) && amount > 0)
+                    {
+                        string key = payload.Substring(0, sep);
+                        MogulQuestSystem.AddProgress(_localData, key, amount);
+                        changed = true;
+                    }
                     break;
                 }
 
@@ -286,6 +300,9 @@ public static class MogulNetwork
                     int sep = payload.IndexOf(':');
                     if (sep > 0 && Enum.TryParse<EmployeeRole>(payload.Substring(sep + 1), out var role))
                     {
+                        if (role != EmployeeRole.Cashier && role != EmployeeRole.Budtender)
+                            break;
+
                         string locId = payload.Substring(0, sep);
                         if (!_localData.RegisteredLocationIds.Contains(locId))
                             break;
@@ -313,7 +330,6 @@ public static class MogulNetwork
                             {
                                 EmployeeRole.Cashier   => "Casey Cashier",
                                 EmployeeRole.Budtender => "Bailey Budtender",
-                                EmployeeRole.Runner    => "Riley Runner",
                                 _                      => role.ToString(),
                             },
                         });
@@ -340,6 +356,109 @@ public static class MogulNetwork
                     }
                     break;
                 }
+
+            case MogulActions.StartBudtenderOrder:
+                {
+                    if (StrainMixingSystem.TryParseOrderPayload(payload, out var request))
+                    {
+                        string locId = request.LocationId;
+                        string baseProductId = request.BaseProductId;
+                        if (!_localData.RegisteredLocationIds.Contains(locId)) break;
+                        if (_localData.LocationBudtenderOrders.ContainsKey(locId)) break;
+                        if (!EmployeeProduction.TryGetBudtenderProduct(baseProductId, out _)) break;
+                        if (request.IngredientIds.Count > StrainMixingSystem.GetUnlockedIngredientSlots(_localData.Reach)) break;
+                        if (!_localData.LocationEmployees.TryGetValue(locId, out var employees)) break;
+                        if (EmployeeProduction.CountRole(employees, EmployeeRole.Budtender) <= 0) break;
+                        if (!StrainMixingSystem.TryResolveRecipeProduct(baseProductId, request.IngredientIds, out var productId, out var displayName, out var mixError))
+                        {
+                            MelonLogger.Warning($"[Mogul] Budtender order rejected: {mixError ?? "mix failed"}");
+                            break;
+                        }
+
+                        int currentDay = EmployeeSystem.GetCurrentGameDay();
+                        int currentTime = EmployeeSystem.GetCurrentGameTime();
+
+                        _localData.LocationBudtenderOrders[locId] = new BudtenderOrderData
+                        {
+                            ProductId = productId,
+                            BaseProductId = baseProductId,
+                            IngredientIds = request.IngredientIds,
+                            DisplayName = displayName,
+                            Quantity = EmployeeProduction.BudtenderStackQuantity,
+                            StartDay = currentDay,
+                            StartTime = currentTime,
+                            ReadyDay = EmployeeProduction.GetReadyDay(currentDay, currentTime),
+                        };
+                        changed = true;
+                    }
+                    break;
+                }
+
+            case MogulActions.CompleteBudtenderOrder:
+                {
+                    string locId = payload;
+                    if (string.IsNullOrEmpty(locId)) break;
+                    if (!_localData.LocationBudtenderOrders.TryGetValue(locId, out var order)) break;
+                    if (!EmployeeProduction.IsOrderComplete(order, EmployeeSystem.GetCurrentGameDay(), EmployeeSystem.GetCurrentGameTime())) break;
+
+                    string storageError = "building not spawned";
+                    bool stored = LocationSpawner.TryGetSpawnedBuilding(locId, out var buildingRoot)
+                        && StorageScanner.TryAddProductStack(buildingRoot, order.ProductId, order.Quantity, out storageError);
+                    if (!stored)
+                    {
+                        if (!_localData.LocationVirtualInventory.TryGetValue(locId, out var inv))
+                        {
+                            inv = new System.Collections.Generic.Dictionary<string, int>();
+                            _localData.LocationVirtualInventory[locId] = inv;
+                        }
+                        inv.TryGetValue(order.ProductId, out int existing);
+                        inv[order.ProductId] = existing + order.Quantity;
+                        MelonLogger.Warning($"[Mogul] Budtender storage deposit failed for {locId}: {storageError ?? "unknown"}; added virtual stock");
+                    }
+                    _localData.LocationBudtenderOrders.Remove(locId);
+                    MelonLogger.Msg($"[Mogul] Budtender completed {order.Quantity} {StrainMixingSystem.BuildOrderDisplayName(order)} at {locId} ({(stored ? "storage" : "virtual")})");
+                    changed = true;
+                    break;
+                }
+
+            case MogulActions.SetObjectPlacement:
+                {
+                    var parts = payload.Split(':');
+                    if (parts.Length == 6
+                        && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float x)
+                        && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float y)
+                        && float.TryParse(parts[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float z)
+                        && float.TryParse(parts[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float yaw))
+                    {
+                        string locId = parts[0];
+                        string objectId = parts[1];
+                        if (!_localData.RegisteredLocationIds.Contains(locId) || string.IsNullOrEmpty(objectId))
+                            break;
+
+                        if (!_localData.LocationObjectPlacements.TryGetValue(locId, out var placements))
+                        {
+                            placements = new System.Collections.Generic.Dictionary<string, MogulObjectPlacementData>();
+                            _localData.LocationObjectPlacements[locId] = placements;
+                        }
+
+                        placements[objectId] = new MogulObjectPlacementData
+                        {
+                            X = x,
+                            Y = y,
+                            Z = z,
+                            Yaw = yaw,
+                        };
+                        changed = true;
+                    }
+                    break;
+                }
+
+            case MogulActions.ClearObjectPlacements:
+                {
+                    if (!string.IsNullOrEmpty(payload))
+                        changed = _localData.LocationObjectPlacements.Remove(payload);
+                    break;
+                }
         }
 
         if (changed)
@@ -351,10 +470,14 @@ public static class MogulNetwork
         data.RegisteredLocationIds ??= new System.Collections.Generic.List<string>();
         data.LocationDesigns ??= new System.Collections.Generic.Dictionary<string, string>();
         data.CompletedQuestIds ??= new System.Collections.Generic.List<string>();
+        data.ObjectiveProgress ??= new System.Collections.Generic.Dictionary<string, int>();
+        data.UnlockedFeatureIds ??= new System.Collections.Generic.List<string>();
         data.RegisterBalances ??= new System.Collections.Generic.Dictionary<string, float>();
         data.LocationEmployees ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<HiredEmployeeData>>();
         data.LocationVirtualInventory ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, int>>();
         data.LocationBudtenderProductionDay ??= new System.Collections.Generic.Dictionary<string, int>();
+        data.LocationBudtenderOrders ??= new System.Collections.Generic.Dictionary<string, BudtenderOrderData>();
+        data.LocationObjectPlacements ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, MogulObjectPlacementData>>();
     }
 
     private static void Commit()

@@ -15,10 +15,15 @@ public static class MogulActions
     public const string SetActiveQuest = "set_quest";
     public const string AdvanceQuest = "advance_quest";
     public const string CompleteQuest = "complete_quest";
+    public const string RecordObjectiveEvent = "record_objective_event";
     public const string AddRegisterSale = "add_register_sale";
     public const string CollectRegister = "collect_register";
     public const string HireEmployee = "hire_employee";
     public const string AddVirtualInventory = "add_virtual_inventory";
+    public const string StartBudtenderOrder = "start_budtender_order";
+    public const string CompleteBudtenderOrder = "complete_budtender_order";
+    public const string SetObjectPlacement = "set_object_placement";
+    public const string ClearObjectPlacements = "clear_object_placements";
 }
 
 // P2P message sent from client → host to request a state change.

@@ -30,6 +30,10 @@ internals, and manual testing.
 - `docs/research/rebuild_lifecycle.md` - customization rebuild notes, rack preservation,
   direct employee placement, cashier anchor math, and grow tent respawn flow.
 - `docs/research/quests.md` - Mogul quest layer and S1API/vanilla quest integration notes.
+- `docs/research/quest_task_hooks.md` - new quest/task backend, unlock flags, and
+  NPC/sale/body hook leads.
+- `docs/research/strain_mixing.md` - vanilla ProductManager mixing/product
+  creation APIs and Mogul budtender strain-builder plan.
 - `docs/research/otc_customer_research.md` - OTC customer/product-selection model.
 - `docs/research/handover_cashregister.md` - cash register visual state and known issue.
 
@@ -37,6 +41,8 @@ internals, and manual testing.
 
 - `docs/whatToTest.md` - current manual test checklist for playable slices.
 - `docs/CustomerDemand.md` - pure customer demand/order logic.
+- `docs/demand_simulation.md` - headless demand simulator usage for pricing,
+  reach, inventory, and upgrade balancing.
 - `docs/howto.md` - chat usage and handoff notes.
 
 ## Search First

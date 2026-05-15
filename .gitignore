@@ -3,3 +3,7 @@
 
 # Ignore the assembly directory
 assembly/
+
+# Build outputs
+bin/
+obj/

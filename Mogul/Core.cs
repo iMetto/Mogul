@@ -20,6 +20,7 @@ public class Core : MelonMod
         MogulPersistence.Initialize();
         LocationSpawner.Initialize();
         SellDesk.Initialize();
+        MogulPlacementSystem.Initialize();
         CustomerManager.Initialize();
         EmployeeSystem.Initialize();
         BuildingPreview.RegisterConsoleCommands();
@@ -46,6 +47,7 @@ public class Core : MelonMod
     public override void OnGUI()
     {
         CheckoutUI.Draw();
+        MogulPlacementSystem.DrawGui();
     }
 
     public override void OnUpdate()
@@ -56,6 +58,8 @@ public class Core : MelonMod
         if (playerPos.HasValue)
             CustomerManager.Tick(playerPos.Value);
         EmployeeSystem.Tick();
+        MogulQuestSystem.Tick();
+        MogulPlacementSystem.Tick();
 
         if (Input.GetKeyDown(KeyCode.F4))
         {
@@ -84,11 +88,42 @@ public class Core : MelonMod
                     }
                     else
                     {
-                        var local = pos.Value - loc.WorldPosition;
+                        var local = pos.Value - BuildingPreview.GetEffectiveWorldPosition(loc);
                         LoggerInstance.Msg($"[POS] {loc.Id} approxLocal=({local.x:F2}, {local.y:F2}, {local.z:F2})");
                     }
                 }
             }
+        }
+
+        if (Input.GetKeyDown(KeyCode.F8))
+        {
+            if (BuildingCustomizerUI.IsVisible)
+            {
+                BuildingCustomizerUI.Hide();
+            }
+            else
+            {
+                var pos = Player.Local?.Position;
+                if (pos.HasValue && LocationGeometry.TryFindNearestLocation(pos.Value, out var loc))
+                    BuildingCustomizerUI.ShowForLocation(loc.Id, loc.Name);
+            }
+        }
+
+        if (Input.GetKeyDown(KeyCode.F7))
+        {
+            EmployeeSystem.DumpSeedDefinitionsOnce();
+            var pos = Player.Local?.Position;
+            if (pos.HasValue && LocationGeometry.TryFindNearestLocation(pos.Value, out var loc))
+                EmployeeSystem.DumpGrowTentHierarchy(loc.Id);
+            if (pos.HasValue)
+                EmployeeSystem.DumpNearestGrowTent(pos.Value);
+        }
+
+        if (Input.GetKeyDown(KeyCode.F9))
+        {
+            var pos = Player.Local?.Position;
+            if (pos.HasValue)
+                MogulPlacementSystem.ToggleNearest(pos.Value);
         }
 
         if (Input.GetKeyDown(KeyCode.F6))

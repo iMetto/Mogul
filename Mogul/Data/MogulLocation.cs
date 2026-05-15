@@ -27,17 +27,34 @@ public class SellDeskConfig
 
     public Vector3 StaffLocalPos { get; }
     public bool HasStaffLocalPos { get; }
+    public Quaternion StaffLocalRotation { get; }
+    public bool HasStaffLocalRotation { get; }
 
     public SellDeskConfig(
         Vector3 registerLocalPos = default,
         Quaternion registerLocalRotation = default,
-        Vector3 staffLocalPos = default)
+        Vector3 staffLocalPos = default,
+        Quaternion staffLocalRotation = default)
     {
         RegisterLocalPos = registerLocalPos;
         RegisterLocalRotation = registerLocalRotation == default ? Quaternion.Euler(0f, 270f, 0f) : registerLocalRotation;
         HasRegisterPlacement = registerLocalPos != default || registerLocalRotation != default;
         StaffLocalPos = staffLocalPos;
         HasStaffLocalPos = staffLocalPos != default;
+        StaffLocalRotation = staffLocalRotation;
+        HasStaffLocalRotation = staffLocalRotation != default;
+    }
+}
+
+public class GrowTentConfig
+{
+    public Vector3 LocalPos { get; }
+    public Quaternion Rotation { get; }
+
+    public GrowTentConfig(Vector3 localPos = default, Quaternion rotation = default)
+    {
+        LocalPos = localPos;
+        Rotation = rotation == default ? Quaternion.identity : rotation;
     }
 }
 
@@ -54,6 +71,7 @@ public class MogulLocation
     /// <summary>When set (non-identity), overrides the auto-computed desk rotation.</summary>
     public Quaternion DeskRotation { get; }
     public SellDeskConfig SellDesk { get; }
+    public GrowTentConfig GrowTent { get; }
     public StorageRackConfig[] StorageRacks { get; }
     /// <summary>How many interior queue slots to allow before spilling outside. Default 8.</summary>
     public int MaxInteriorSlots { get; }
@@ -69,6 +87,7 @@ public class MogulLocation
         Vector3 deskOffset = default,
         Quaternion deskRotation = default,
         SellDeskConfig sellDesk = null,
+        GrowTentConfig growTent = null,
         StorageRackConfig[] storageRacks = null,
         int maxInteriorSlots = 8)
     {
@@ -82,6 +101,7 @@ public class MogulLocation
         DeskOffset = deskOffset;
         DeskRotation = deskRotation;
         SellDesk = sellDesk ?? new SellDeskConfig();
+        GrowTent = growTent ?? new GrowTentConfig();
         StorageRacks = storageRacks ?? System.Array.Empty<StorageRackConfig>();
         MaxInteriorSlots = maxInteriorSlots;
     }

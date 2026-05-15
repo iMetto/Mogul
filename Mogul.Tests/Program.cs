@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Mogul.Data;
 using Mogul.Systems;
@@ -11,8 +12,11 @@ internal static class Program
     private static int _passed;
     private static int _failed;
 
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.Contains("--simulate-demand"))
+            return RunDemandSimulation(args);
+
         Run("empty shelves rejects as EmptyShelves", EmptyShelvesRejects);
         Run("all products over per-item budget reject as TooExpensive", TooExpensiveRejects);
         Run("low appeal products reject as LowAppeal", LowAppealRejects);
@@ -20,9 +24,14 @@ internal static class Program
         Run("purchase decisions are deterministic for the same seed", PurchaseDecisionsAreDeterministic);
         Run("selected product quality names track current labels", SelectedProductQualityNames);
         Run("storage product quality names track current labels", StorageProductQualityNames);
-        Run("budtender production is 20 OG Kush per elapsed day", BudtenderProductionScalesByElapsedDays);
+        Run("budtender production is one 20 pkg stack per elapsed day", BudtenderProductionScalesByElapsedDays);
         Run("non-budtender roles do not produce OG Kush", NonBudtendersDoNotProduce);
         Run("budtender daily yield is zero without budtenders", BudtenderDailyYieldRequiresBudtender);
+        Run("budtender order timing follows working day", BudtenderOrderTimingFollowsWorkingDay);
+        Run("budtender product catalog has starter weed", BudtenderProductCatalogHasStarterWeed);
+        Run("strain recipes encode ordered ingredients", StrainRecipesEncodeOrderedIngredients);
+        Run("strain ingredient slots unlock by reach", StrainIngredientSlotsUnlockByReach);
+        Run("demand simulation is deterministic and depletes inventory", DemandSimulationIsDeterministicAndDepletesInventory);
         Run("quest progress reads owned properties and employees", QuestProgressReadsSaveData);
 
         Console.WriteLine();
@@ -30,6 +39,72 @@ internal static class Program
         Console.WriteLine($"Failed: {_failed}");
 
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static int RunDemandSimulation(string[] args)
+    {
+        var config = new DemandSimulationConfig
+        {
+            Inventory = DemandSimulationSystem.CreateMixedScenarioInventory(),
+        };
+        var customInventory = new List<StorageProduct>();
+
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--scenario":
+                    var scenario = ReadArg(args, ref i, "--scenario");
+                    config.Inventory = scenario.Equals("starter", StringComparison.OrdinalIgnoreCase)
+                        ? DemandSimulationSystem.CreateStarterScenarioInventory()
+                        : DemandSimulationSystem.CreateMixedScenarioInventory();
+                    break;
+                case "--reach":
+                    config.Reach = int.Parse(ReadArg(args, ref i, "--reach"));
+                    break;
+                case "--customers":
+                    config.CustomerCount = int.Parse(ReadArg(args, ref i, "--customers"));
+                    break;
+                case "--seed":
+                    config.Seed = int.Parse(ReadArg(args, ref i, "--seed"));
+                    break;
+                case "--no-deplete":
+                    config.DepleteInventory = false;
+                    break;
+                case "--stock":
+                    customInventory.Add(ParseStock(ReadArg(args, ref i, "--stock")));
+                    break;
+            }
+        }
+
+        if (customInventory.Count > 0)
+            config.Inventory = customInventory;
+
+        Console.WriteLine(DemandSimulationSystem.Run(config).ToText());
+        return 0;
+    }
+
+    private static string ReadArg(string[] args, ref int index, string flag)
+    {
+        if (index + 1 >= args.Length)
+            throw new InvalidOperationException($"{flag} requires a value");
+        index++;
+        return args[index];
+    }
+
+    private static StorageProduct ParseStock(string value)
+    {
+        var parts = value.Split('|');
+        if (parts.Length != 6)
+            throw new InvalidOperationException("--stock format is id|name|price|packages|quality|effect,effect");
+
+        return DemandSimulationSystem.Product(
+            parts[0],
+            parts[1],
+            float.Parse(parts[2], CultureInfo.InvariantCulture),
+            int.Parse(parts[3], CultureInfo.InvariantCulture),
+            int.Parse(parts[4], CultureInfo.InvariantCulture),
+            parts[5].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     private static void Run(string name, Action test)
@@ -183,7 +258,6 @@ internal static class Program
         var employees = new List<HiredEmployeeData>
         {
             new() { Id = "c1", Role = EmployeeRole.Cashier, DisplayName = "Cash" },
-            new() { Id = "r1", Role = EmployeeRole.Runner, DisplayName = "Run" },
         };
 
         AssertEqual(0, EmployeeProduction.CalculateBudtenderYield(employees, 5));
@@ -194,6 +268,77 @@ internal static class Program
         AssertEqual(0, EmployeeProduction.GetBudtenderDailyYield(0));
         AssertEqual(20, EmployeeProduction.GetBudtenderDailyYield(1));
         AssertEqual(40, EmployeeProduction.GetBudtenderDailyYield(2));
+    }
+
+    private static void BudtenderOrderTimingFollowsWorkingDay()
+    {
+        AssertEqual(12, EmployeeProduction.GetReadyDay(12, 800));
+        AssertEqual(13, EmployeeProduction.GetReadyDay(12, 801));
+        AssertEqual(0, EmployeeProduction.GetReadyDay(0, 800));
+
+        var order = new BudtenderOrderData
+        {
+            ProductId = "ogkush",
+            Quantity = EmployeeProduction.BudtenderStackQuantity,
+            StartDay = 12,
+            StartTime = 900,
+            ReadyDay = 13,
+        };
+
+        AssertTrue(!EmployeeProduction.IsOrderComplete(order, 13, 1659), "order completed before working day end");
+        AssertTrue(EmployeeProduction.IsOrderComplete(order, 13, 1700), "order did not complete at working day end");
+        AssertTrue(EmployeeProduction.IsOrderComplete(order, 14, 800), "order did not remain complete after ready day");
+    }
+
+    private static void BudtenderProductCatalogHasStarterWeed()
+    {
+        AssertEqual(4, EmployeeProduction.BudtenderProducts.Length);
+        AssertTrue(EmployeeProduction.TryGetBudtenderProduct("ogkush", out var og), "missing ogkush");
+        AssertEqual("OG Kush", og.DisplayName);
+        AssertTrue(EmployeeProduction.TryGetBudtenderProduct("sourdiesel", out _), "missing sourdiesel");
+        AssertTrue(EmployeeProduction.TryGetBudtenderProduct("greencrack", out _), "missing greencrack");
+        AssertTrue(EmployeeProduction.TryGetBudtenderProduct("granddaddypurple", out _), "missing granddaddypurple");
+    }
+
+    private static void StrainRecipesEncodeOrderedIngredients()
+    {
+        var payload = StrainMixingSystem.BuildOrderPayload("loc_westville_01", "ogkush", new[] { "cuke", "gasoline" });
+
+        AssertTrue(StrainMixingSystem.TryParseOrderPayload(payload, out var request), "payload did not parse");
+        AssertEqual("loc_westville_01", request.LocationId);
+        AssertEqual("ogkush", request.BaseProductId);
+        AssertEqual(2, request.IngredientIds.Count);
+        AssertEqual("cuke", request.IngredientIds[0]);
+        AssertEqual("gasoline", request.IngredientIds[1]);
+        AssertEqual("OG Kush + Cuke + Gasoline", StrainMixingSystem.BuildRecipeName(request.BaseProductId, request.IngredientIds));
+    }
+
+    private static void StrainIngredientSlotsUnlockByReach()
+    {
+        AssertEqual(0, StrainMixingSystem.GetUnlockedIngredientSlots(0));
+        AssertEqual(1, StrainMixingSystem.GetUnlockedIngredientSlots(750));
+        AssertEqual(2, StrainMixingSystem.GetUnlockedIngredientSlots(3500));
+        AssertEqual(3, StrainMixingSystem.GetUnlockedIngredientSlots(10000));
+        AssertEqual(4, StrainMixingSystem.GetUnlockedIngredientSlots(20000));
+    }
+
+    private static void DemandSimulationIsDeterministicAndDepletesInventory()
+    {
+        var config = new DemandSimulationConfig
+        {
+            Reach = 3500,
+            CustomerCount = 100,
+            Seed = 9001,
+            Inventory = DemandSimulationSystem.CreateStarterScenarioInventory(),
+        };
+
+        var first = DemandSimulationSystem.Run(config);
+        var second = DemandSimulationSystem.Run(config);
+
+        AssertEqual(first.FulfilledCustomers, second.FulfilledCustomers);
+        AssertEqual(first.PackagesSold, second.PackagesSold);
+        AssertEqual(first.Revenue, second.Revenue);
+        AssertTrue(first.Products.Any(p => p.PackagesRemaining < p.StartingPackages), "expected at least one product to sell down");
     }
 
     private static void QuestProgressReadsSaveData()
@@ -210,15 +355,18 @@ internal static class Program
             },
         };
 
-        var propertyQuest = MogulQuestSystem.Find("first_property");
-        var cashierQuest = MogulQuestSystem.Find("hire_cashier");
-        var budtenderQuest = MogulQuestSystem.Find("hire_budtender");
+        MogulQuestSystem.AddProgress(data, MogulQuestSystem.BuildEventKey(MogulObjectiveEvent.KnockoutNpc, "westville_mark_01"), 1);
 
-        AssertEqual(1, MogulQuestSystem.GetProgress(propertyQuest, data));
-        AssertEqual(1, MogulQuestSystem.GetProgress(cashierQuest, data));
-        AssertEqual(0, MogulQuestSystem.GetProgress(budtenderQuest, data));
-        AssertTrue(MogulQuestSystem.IsComplete(propertyQuest, data), "owned property quest should be complete");
-        AssertTrue(!MogulQuestSystem.IsComplete(budtenderQuest, data), "budtender quest should not be complete");
+        var firstQuest = MogulQuestSystem.Find("westville_statement");
+        var task = MogulQuestSystem.Find("move_ogkush_12");
+
+        AssertEqual(1, MogulQuestSystem.GetProgress(firstQuest, data));
+        AssertTrue(MogulQuestSystem.IsComplete(firstQuest, data), "first quest should be complete after target knockout");
+
+        MogulQuestSystem.Claim(firstQuest, data);
+        AssertTrue(MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockPropertiesTab), "properties tab should unlock");
+        AssertTrue(MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockWestvillePurchase), "westville purchase should unlock");
+        AssertTrue(task.IsAvailable(data), "tasks should unlock after first quest");
     }
 
 

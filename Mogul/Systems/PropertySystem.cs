@@ -20,16 +20,21 @@ public static class PropertySystem
             "Westville Corner",
             "Quiet corner in Westville — low profile.",
             8000f,
-            new Vector3(-171.44f, -3.0f, 70f),
-            WallSide.East, new Vector3(12f, 3f, 8f),
-            deskOffset: new Vector3(10f, 0f, 6.5f),
-            deskRotation: Quaternion.Euler(0f, 90f, 0f),
+            new Vector3(-167.08f, -3.13f, 73.55f),
+            WallSide.East, new Vector3(7.5f, 3f, 5.5f),
+            deskOffset: new Vector3(1.05f, 0f, 1.25f),
+            deskRotation: Quaternion.Euler(0f, 270f, 0f),
             sellDesk: new SellDeskConfig(
                 registerLocalPos: new Vector3(-0.13f, 0.95f, 0.12f),
-                registerLocalRotation: Quaternion.Euler(0f, 0f, 0f)),
+                registerLocalRotation: Quaternion.Euler(0f, 0f, 0f),
+                staffLocalPos: new Vector3(0.80f, 0f, 0.45f),
+                staffLocalRotation: Quaternion.Euler(0f, 5.6f, 0f)),
+            growTent: new GrowTentConfig(
+                localPos: new Vector3(3.94f, 0.25f, 5.00f),
+                rotation: Quaternion.Euler(0f, 180.4f, 0f)),
             storageRacks:
             [
-                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 3f)),
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.25f, 0.4f, 5.05f), Quaternion.Euler(0f, 0f, 0f)),
             ],
             maxInteriorSlots: 0
         ),
@@ -38,14 +43,22 @@ public static class PropertySystem
             "Downtown Spot",
             "A prime location in the heart of downtown.",
             15000f,
-            new Vector3(109f, 1.0f, -6.29f),
-            WallSide.North, new Vector3(8f, 3f, 12f),
-            deskOffset: new Vector3(1.5f, 0f, 10.5f),
-            deskRotation: Quaternion.Euler(0f, 90f, 0f),
+            new Vector3(105f, 1.15f, -3.29f),
+            WallSide.North, new Vector3(7f, 3f, 9f),
+            deskOffset: new Vector3(1.50f, 0f, 4.50f),
+            deskRotation: Quaternion.Euler(0f, 0f, 0f),
+            sellDesk: new SellDeskConfig(
+                registerLocalPos: new Vector3(-0.13f, 0.95f, 0.12f),
+                registerLocalRotation: Quaternion.Euler(0f, 0f, 0f),
+                staffLocalPos: new Vector3(0.70f, 0f, 4.63f),
+                staffLocalRotation: Quaternion.Euler(0f, 105f, 0f)),
+            growTent: new GrowTentConfig(
+                localPos: new Vector3(6.50f, 0.25f, 4.80f),
+                rotation: Quaternion.Euler(0f, 271f, 0f)),
             storageRacks:
             [
-                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(4f, 0f, 1.5f)),
-                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(6f, 0f, 1.5f)),
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(3.48f, 0f, 0.51f), Quaternion.Euler(0f, 0f, 0f)),
+                new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(5.10f, 0f, 0.51f), Quaternion.Euler(0f, 0f, 0f)),
             ],
             maxInteriorSlots: 0
         ),
@@ -58,6 +71,9 @@ public static class PropertySystem
             WallSide.East, new Vector3(14f, 4f, 16f),
             deskOffset: new Vector3(12.5f, 0f, 14.5f),
             deskRotation: Quaternion.Euler(0f, 90f, 0f),
+            sellDesk: new SellDeskConfig(
+                registerLocalPos: new Vector3(-0.13f, 0.95f, 0.12f),
+                registerLocalRotation: Quaternion.Euler(0f, 0f, 0f)),
             storageRacks:
             [
                 new StorageRackConfig(new PrefabRef("StorageRack_Large"), new Vector3(1.5f, 0f, 4f)),
@@ -74,6 +90,27 @@ public static class PropertySystem
     public static bool IsOwned(string id) =>
         MogulNetwork.Data.RegisteredLocationIds.Contains(id);
 
+    public static bool IsVisible(string id, MogulSaveData data = null)
+    {
+        data ??= MogulNetwork.Data;
+        if (id == "loc_westville_01")
+            return MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockPropertiesTab);
+        if (id == "loc_downtown_01")
+            return MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.RevealDowntown)
+                || MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockDowntownPurchase);
+        return MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockDowntownPurchase);
+    }
+
+    public static bool IsPurchasable(string id, MogulSaveData data = null)
+    {
+        data ??= MogulNetwork.Data;
+        if (id == "loc_westville_01")
+            return MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockWestvillePurchase);
+        if (id == "loc_downtown_01")
+            return MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockDowntownPurchase);
+        return false;
+    }
+
     // Returns null on success, or an error string to display.
     // Uses a single atomic action so SpawnBuilding always sees the correct design.
     public static string TryPurchaseWithDesign(string locationId, string designId)
@@ -81,6 +118,7 @@ public static class PropertySystem
         MogulLocation loc = Find(locationId);
         if (loc == null) return "Unknown location.";
         if (IsOwned(locationId)) return "Already owned.";
+        if (!IsPurchasable(locationId)) return "Locked. Handle the work first.";
         if (Money.GetOnlineBalance() < loc.Price)
             return $"Not enough balance. Need ${loc.Price:N0}.";
 

@@ -486,7 +486,6 @@ public static class CustomerSpawner
     {
         EmployeeRole.Cashier   => (new Color(0.18f, 0.52f, 0.22f), new Color(0.15f, 0.45f, 0.18f)),
         EmployeeRole.Budtender => (new Color(0.22f, 0.42f, 0.68f), new Color(0.16f, 0.30f, 0.50f)),
-        EmployeeRole.Runner    => (new Color(0.55f, 0.40f, 0.18f), new Color(0.42f, 0.30f, 0.14f)),
         _                      => (new Color(0.18f, 0.52f, 0.22f), new Color(0.15f, 0.45f, 0.18f)),
     };
 

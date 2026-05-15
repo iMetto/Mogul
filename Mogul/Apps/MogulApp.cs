@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Mogul.Data;
 using Mogul.Systems;
 using S1API.PhoneApp;
@@ -44,9 +45,11 @@ public class MogulApp : PhoneApp
     private RectTransform _questContent;
 
     private View _currentView = View.List;
-    private MainTab _mainTab = MainTab.Properties;
+    private MainTab _mainTab = MainTab.Quests;
     private string _selectedRowId;
     private string _detailLocationId;
+    private int _strainBaseIndex;
+    private readonly List<string> _strainIngredientIds = new();
 
     protected override void OnCreatedUI(GameObject container)
     {
@@ -161,6 +164,8 @@ public class MogulApp : PhoneApp
 
     private void SelectMainTab(MainTab tab)
     {
+        if (tab == MainTab.Properties && !MogulQuestSystem.IsUnlocked(MogulQuestSystem.UnlockPropertiesTab))
+            return;
         _mainTab = tab;
         _currentView = View.List;
         _selectedRowId = null;
@@ -170,6 +175,11 @@ public class MogulApp : PhoneApp
 
     private void RefreshTabs()
     {
+        bool propertiesUnlocked = MogulQuestSystem.IsUnlocked(MogulQuestSystem.UnlockPropertiesTab);
+        if (!propertiesUnlocked && _mainTab == MainTab.Properties)
+            _mainTab = MainTab.Quests;
+        if (_propertiesTabButton != null)
+            _propertiesTabButton.SetActive(propertiesUnlocked);
         SetTabVisual(_propertiesTabButton, _mainTab == MainTab.Properties);
         SetTabVisual(_questsTabButton, _mainTab == MainTab.Quests);
     }
@@ -319,6 +329,7 @@ public class MogulApp : PhoneApp
 
         foreach (var location in PropertySystem.Catalog)
         {
+            if (!PropertySystem.IsVisible(location.Id)) continue;
             bool owned = PropertySystem.IsOwned(location.Id);
             bool selected = !owned && _selectedRowId == location.Id;
             BuildRow(location, owned, selected);
@@ -331,8 +342,33 @@ public class MogulApp : PhoneApp
         for (int i = _questContent.childCount - 1; i >= 0; i--)
             GameObject.Destroy(_questContent.GetChild(i).gameObject);
 
-        foreach (var quest in MogulQuestSystem.Quests)
+        BuildQuestHeader("QUESTS");
+        foreach (var quest in MogulQuestSystem.GetAvailable(MogulObjectiveType.Quest, MogulNetwork.Data))
             BuildQuestRow(quest);
+
+        BuildQuestHeader("TASKS");
+        foreach (var task in MogulQuestSystem.GetAvailable(MogulObjectiveType.Task, MogulNetwork.Data))
+            BuildQuestRow(task);
+    }
+
+    private void BuildQuestHeader(string label)
+    {
+        var row = new GameObject("Header_" + label);
+        row.transform.SetParent(_questContent, false);
+        var le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = 26f;
+        le.minHeight = 26f;
+
+        var textObj = MakeText(row, "Label", label);
+        var text = textObj.GetComponent<Text>();
+        text.fontSize = 12;
+        text.fontStyle = FontStyle.Bold;
+        text.color = ColorGold;
+        text.alignment = TextAnchor.MiddleLeft;
+        var tr = textObj.GetComponent<RectTransform>();
+        tr.anchorMin = new Vector2(0.025f, 0f);
+        tr.anchorMax = new Vector2(0.98f, 1f);
+        tr.sizeDelta = Vector2.zero;
     }
 
     private void BuildQuestRow(MogulQuestDefinition quest)
@@ -415,18 +451,19 @@ public class MogulApp : PhoneApp
     private void BuildRow(MogulLocation location, bool owned, bool selected)
     {
         float h = selected ? 110f : 56f;
+        bool locked = !owned && !PropertySystem.IsPurchasable(location.Id);
 
         var row = new GameObject("Row_" + location.Id);
         row.transform.SetParent(_listContent, false);
         var rowImg = row.AddComponent<Image>();
-        rowImg.color = owned ? ColorRowOwned : (selected ? ColorRowSel : ColorRow);
+        rowImg.color = locked ? ColorHeader : owned ? ColorRowOwned : (selected ? ColorRowSel : ColorRow);
         var le = row.AddComponent<LayoutElement>();
         le.preferredHeight = h;
         le.minHeight = h;
 
         var accent = new GameObject("Accent");
         accent.transform.SetParent(row.transform, false);
-        accent.AddComponent<Image>().color = owned ? ColorMuted : ColorGold;
+        accent.AddComponent<Image>().color = locked ? ColorMuted : owned ? ColorMuted : ColorGold;
         var ar = accent.GetComponent<RectTransform>();
         ar.anchorMin = new Vector2(0f, 0.1f);
         ar.anchorMax = new Vector2(0.006f, 0.9f);
@@ -470,10 +507,10 @@ public class MogulApp : PhoneApp
         }
         else if (!selected)
         {
-            var priceObj = MakeText(row, "Price", "$" + location.Price.ToString("N0"));
+            var priceObj = MakeText(row, "Price", locked ? "LOCKED" : "$" + location.Price.ToString("N0"));
             var priceText = priceObj.GetComponent<Text>();
             priceText.fontSize = 13;
-            priceText.color = ColorGold;
+            priceText.color = locked ? ColorMuted : ColorGold;
             priceText.alignment = TextAnchor.MiddleRight;
             var pr2 = priceObj.GetComponent<RectTransform>();
             pr2.anchorMin = new Vector2(0.6f, 0f);
@@ -491,6 +528,7 @@ public class MogulApp : PhoneApp
             clickImg.raycastTarget = true;
             clickGo.AddComponent<Button>().onClick.AddListener(new Action(() =>
             {
+                if (locked) return;
                 _selectedRowId = location.Id;
                 RefreshList();
             }));
@@ -509,8 +547,9 @@ public class MogulApp : PhoneApp
             dr.anchorMax = new Vector2(0.7f, 0.7f);
             dr.sizeDelta = Vector2.zero;
 
+            var roomSize = BuildingPreview.GetEffectiveRoomSize(location);
             var sizeObj = MakeText(row, "Size",
-                $"{location.RoomSize.x:F0} × {location.RoomSize.z:F0} m  ·  Door: {location.Door}");
+                $"{roomSize.x:F0} × {roomSize.z:F0} m  ·  Door: {location.Door}");
             var sizeText = sizeObj.GetComponent<Text>();
             sizeText.fontSize = 11;
             sizeText.color = ColorMuted;
@@ -662,6 +701,7 @@ public class MogulApp : PhoneApp
             GameObject.Destroy(_managePanel.transform.GetChild(i).gameObject);
 
         BuildInventorySection();
+        BuildBudtenderOrderSection();
         BuildGrowSection();
         BuildEmployeeSection();
     }
@@ -669,7 +709,7 @@ public class MogulApp : PhoneApp
     private void BuildInventorySection()
     {
         var box = BuildSection(_managePanel, "INVENTORY",
-            new Vector2(0.04f, 0.62f), new Vector2(0.96f, 0.95f),
+            new Vector2(0.04f, 0.72f), new Vector2(0.96f, 0.95f),
             "");
 
         string text = BuildInventoryText();
@@ -702,24 +742,155 @@ public class MogulApp : PhoneApp
                 lines.Add($"+ {stock.Count - 6} more stored products");
         }
 
-        int ogKush = EmployeeSystem.GetVirtualInventory(_detailLocationId, EmployeeProduction.TestBudtenderProductId);
-        if (ogKush > 0)
-            lines.Add($"Virtual: OG Kush · Test Grow · {ogKush} pkg");
+        if (MogulNetwork.Data.LocationVirtualInventory.TryGetValue(_detailLocationId, out var virtualInventory))
+        {
+            foreach (var kvp in virtualInventory)
+            {
+                if (kvp.Value > 0)
+                    lines.Add($"Virtual: {StrainMixingSystem.GetProductDisplayName(kvp.Key)} · Budtender · {kvp.Value} pkg");
+            }
+        }
 
         return lines.Count == 0 ? "(no stored or virtual stock yet)" : string.Join("\n", lines);
+    }
+
+    private void BuildBudtenderOrderSection()
+    {
+        var box = BuildSection(_managePanel, "ORDERS",
+            new Vector2(0.04f, 0.38f), new Vector2(0.96f, 0.69f),
+            "");
+
+        bool hasBudtender = EmployeeSystem.HasRole(_detailLocationId, EmployeeRole.Budtender);
+        var order = EmployeeSystem.GetBudtenderOrder(_detailLocationId);
+        int maxIngredients = StrainMixingSystem.GetUnlockedIngredientSlots(MogulNetwork.Data.Reach);
+        if (_strainBaseIndex < 0 || _strainBaseIndex >= EmployeeProduction.BudtenderProducts.Length)
+            _strainBaseIndex = 0;
+        while (_strainIngredientIds.Count > maxIngredients)
+            _strainIngredientIds.RemoveAt(_strainIngredientIds.Count - 1);
+
+        string status = !hasBudtender
+            ? "Hire a budtender to place production orders"
+            : order == null
+                ? $"Build strain · {maxIngredients} mix slot{(maxIngredients == 1 ? "" : "s")} unlocked"
+                : $"{StrainMixingSystem.BuildOrderDisplayName(order)} · {order.Quantity} pkg · ready day {order.ReadyDay} after 17:00";
+
+        var statusObj = MakeText(box, "OrderStatus", status);
+        var statusText = statusObj.GetComponent<Text>();
+        statusText.fontSize = 11;
+        statusText.color = order == null ? ColorMuted : ColorGold;
+        statusText.alignment = TextAnchor.UpperLeft;
+        statusText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        statusText.verticalOverflow = VerticalWrapMode.Truncate;
+        var sr = statusObj.GetComponent<RectTransform>();
+        sr.anchorMin = new Vector2(0.03f, 0.77f);
+        sr.anchorMax = new Vector2(0.97f, 0.94f);
+        sr.sizeDelta = Vector2.zero;
+
+        bool enabled = hasBudtender && order == null;
+        for (int i = 0; i < EmployeeProduction.BudtenderProducts.Length; i++)
+        {
+            float x0 = 0.03f + i * 0.235f;
+            BuildBaseButton(box, i, new Vector2(x0, 0.59f), new Vector2(x0 + 0.215f, 0.73f), enabled);
+        }
+
+        for (int i = 0; i < StrainMixingSystem.Ingredients.Length; i++)
+        {
+            int row = i / 4;
+            int col = i % 4;
+            float x0 = 0.03f + col * 0.235f;
+            float y0 = row == 0 ? 0.40f : 0.22f;
+            BuildIngredientButton(box, StrainMixingSystem.Ingredients[i],
+                new Vector2(x0, y0), new Vector2(x0 + 0.215f, y0 + 0.14f),
+                enabled, maxIngredients);
+        }
+
+        var selectedBase = EmployeeProduction.BudtenderProducts[_strainBaseIndex];
+        string preview = StrainMixingSystem.BuildRecipeName(selectedBase.ProductId, _strainIngredientIds);
+        var previewObj = MakeText(box, "RecipePreview", preview);
+        var previewText = previewObj.GetComponent<Text>();
+        previewText.fontSize = 10;
+        previewText.color = ColorMuted;
+        previewText.alignment = TextAnchor.MiddleLeft;
+        previewText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        previewText.verticalOverflow = VerticalWrapMode.Truncate;
+        var pr = previewObj.GetComponent<RectTransform>();
+        pr.anchorMin = new Vector2(0.03f, 0.04f);
+        pr.anchorMax = new Vector2(0.57f, 0.18f);
+        pr.sizeDelta = Vector2.zero;
+
+        BuildButton(box, "ClearRecipe", "CLEAR",
+            new Vector2(0.59f, 0.04f), new Vector2(0.72f, 0.18f),
+            enabled && _strainIngredientIds.Count > 0 ? ColorRow : ColorDark,
+            enabled && _strainIngredientIds.Count > 0 ? ColorGold : ColorMuted,
+            () =>
+            {
+                if (!enabled) return;
+                _strainIngredientIds.Clear();
+                RefreshManagePanel();
+            });
+
+        BuildButton(box, "StartRecipe", "START",
+            new Vector2(0.74f, 0.04f), new Vector2(0.97f, 0.18f),
+            enabled ? ColorGold : ColorRow,
+            enabled ? ColorDark : ColorMuted,
+            () =>
+            {
+                if (!enabled) return;
+                EmployeeSystem.RequestBudtenderOrder(_detailLocationId, selectedBase.ProductId, _strainIngredientIds);
+                RefreshManagePanel();
+            });
+    }
+
+    private void BuildBaseButton(GameObject parent, int index, Vector2 min, Vector2 max, bool enabled)
+    {
+        var product = EmployeeProduction.BudtenderProducts[index];
+        bool selected = index == _strainBaseIndex;
+        string label = product.ProductId == "granddaddypurple" ? "GRANDDADDY" : product.DisplayName.ToUpper();
+        BuildButton(parent, "Base_" + product.ProductId, label,
+            min, max,
+            selected ? ColorGold : ColorRow,
+            enabled ? (selected ? ColorDark : ColorGold) : ColorMuted,
+            () =>
+            {
+                if (!enabled) return;
+                _strainBaseIndex = index;
+                RefreshManagePanel();
+            });
+    }
+
+    private void BuildIngredientButton(GameObject parent, BudtenderIngredient ingredient, Vector2 min, Vector2 max, bool enabled, int maxIngredients)
+    {
+        int selectedIndex = _strainIngredientIds.FindIndex(id => string.Equals(id, ingredient.IngredientId, StringComparison.OrdinalIgnoreCase));
+        bool selected = selectedIndex >= 0;
+        bool canAdd = enabled && (selected || _strainIngredientIds.Count < maxIngredients);
+        string label = selected ? $"{selectedIndex + 1} {ingredient.DisplayName.ToUpper()}" : ingredient.DisplayName.ToUpper();
+        BuildButton(parent, "Ingredient_" + ingredient.IngredientId, label,
+            min, max,
+            selected ? ColorAccent : canAdd ? ColorRow : ColorDark,
+            canAdd ? Color.white : ColorMuted,
+            () =>
+            {
+                if (!enabled) return;
+                int existing = _strainIngredientIds.FindIndex(id => string.Equals(id, ingredient.IngredientId, StringComparison.OrdinalIgnoreCase));
+                if (existing >= 0)
+                    _strainIngredientIds.RemoveAt(existing);
+                else if (_strainIngredientIds.Count < maxIngredients)
+                    _strainIngredientIds.Add(ingredient.IngredientId);
+                RefreshManagePanel();
+            });
     }
 
     private void BuildGrowSection()
     {
         BuildSection(_managePanel, "GROW",
-            new Vector2(0.04f, 0.43f), new Vector2(0.96f, 0.59f),
+            new Vector2(0.04f, 0.28f), new Vector2(0.96f, 0.36f),
             EmployeeSystem.GetBudtenderGrowStatus(_detailLocationId));
     }
 
     private void BuildEmployeeSection()
     {
         var box = BuildSection(_managePanel, "EMPLOYEES",
-            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.4f),
+            new Vector2(0.04f, 0.05f), new Vector2(0.96f, 0.27f),
             "");
 
         var employees = EmployeeSystem.GetEmployees(_detailLocationId);
@@ -742,9 +913,28 @@ public class MogulApp : PhoneApp
         rr.anchorMax = new Vector2(0.58f, 0.82f);
         rr.sizeDelta = Vector2.zero;
 
-        BuildHireButton(box, EmployeeRole.Cashier, "HIRE CASHIER", 0.64f);
-        BuildHireButton(box, EmployeeRole.Budtender, "HIRE BUDTENDER", 0.42f);
-        BuildHireButton(box, EmployeeRole.Runner, "HIRE RUNNER", 0.20f);
+        BuildHireButton(box, EmployeeRole.Cashier, "HIRE CASHIER", 0.62f);
+        BuildHireButton(box, EmployeeRole.Budtender, "HIRE BUDTENDER", 0.38f);
+
+        BuildButton(box, "MoveObjects", "MOVE OBJECTS",
+            new Vector2(0.03f, 0.08f), new Vector2(0.34f, 0.27f),
+            MogulPlacementSystem.IsActive ? ColorAccent : ColorRow,
+            MogulPlacementSystem.IsActive ? Color.white : ColorGold,
+            () =>
+            {
+                MogulPlacementSystem.Begin(_detailLocationId);
+                RefreshManagePanel();
+            });
+
+        BuildButton(box, "ResetObjects", "RESET POS",
+            new Vector2(0.36f, 0.08f), new Vector2(0.58f, 0.27f),
+            ColorRow, ColorGold,
+            () =>
+            {
+                MogulNetwork.RequestAction(MogulActions.ClearObjectPlacements, _detailLocationId);
+                LocationSpawner.RebuildBuilding(_detailLocationId);
+                RefreshManagePanel();
+            });
     }
 
     private void BuildHireButton(GameObject parent, EmployeeRole role, string label, float yMin)

@@ -27,12 +27,17 @@ internal readonly struct QueueSlot
 internal static class QueueSlots
 {
     private const float Spacing          = 1.0f;
-    private const int   MaxInterior      = 8;
     private const int   MaxExterior      = 10;
+    private const int   BfsMaxVisited    = 500;
+    private const float DoorClearWidth   = 1.4f;
+    private const float DoorClearDepth   = 1.8f;
 
     private static readonly Dictionary<string, List<QueueSlot>> _cache = new();
 
     public static void ClearCache() => _cache.Clear();
+
+    public static int Capacity(MogulLocation location) =>
+        Mathf.Max(1, location.MaxInteriorSlots + 1) + MaxExterior;
 
     public static QueueSlot Get(int index, MogulLocation location, Vector3 anchor, NavigationBuilder nav)
     {
@@ -56,24 +61,19 @@ internal static class QueueSlots
             slot0 = nav.NearestWalkableCell(slot0);
         results.Add(new QueueSlot(slot0, false));
 
-        // Step in the direction the desk faces (toward customers), falling back to door direction.
-        Vector3 inDir = location.DeskRotation != default
-            ? location.DeskRotation * Vector3.forward
-            : DoorLocalDir(location.Door);
+        var used = new HashSet<(int, int)> { GridKey(slot0, cell) };
+        var bfsOrigin = SnapToGrid(slot0, cell);
+        if (!nav.IsWalkable(bfsOrigin))
+            bfsOrigin = nav.NearestWalkableCell(bfsOrigin);
+        used.Add(GridKey(bfsOrigin, cell));
 
         while (results.Count <= location.MaxInteriorSlots)
         {
-            var prev      = results[results.Count - 1].Position;
-            var candidate = SnapToGrid(prev + inDir * Spacing, cell);
-
-            if (!nav.IsWalkable(candidate))
-                candidate = nav.NearestWalkableCell(candidate);
-
-            if (!nav.IsWalkable(candidate)) break;
-            // Stop if we didn't actually advance (navmesh edge / wall)
-            if (Mathf.Abs(Vector3.Dot(candidate - prev, inDir)) < Spacing * 0.4f) break;
-
-            results.Add(new QueueSlot(candidate, false));
+            var from = results.Count == 1 ? bfsOrigin : results[results.Count - 1].Position;
+            var next = FindNextInteriorSlot(from, used, nav, cell, location);
+            if (!next.HasValue) break;
+            used.Add(GridKey(next.Value, cell));
+            results.Add(new QueueSlot(next.Value, false));
         }
 
         // ── Exterior slots (world-space) ────────────────────────────────────
@@ -109,8 +109,8 @@ internal static class QueueSlots
     // World-space point DoorGap meters outside the door centre.
     private static Vector3 DoorExitWorld(MogulLocation location)
     {
-        var c = location.WorldPosition;
-        var s = location.RoomSize;
+        var c = BuildingPreview.GetEffectiveWorldPosition(location);
+        var s = BuildingPreview.GetEffectiveRoomSize(location);
         return location.Door switch
         {
             WallSide.East  => c + new Vector3(s.x + DoorGap, 0f, s.z / 2f),
@@ -144,4 +144,66 @@ internal static class QueueSlots
     private static Vector3 SnapToGrid(Vector3 p, float cell) =>
         new Vector3((Mathf.FloorToInt(p.x / cell) + 0.5f) * cell, 0f,
                     (Mathf.FloorToInt(p.z / cell) + 0.5f) * cell);
+
+    private static Vector3? FindNextInteriorSlot(
+        Vector3 from,
+        HashSet<(int, int)> used,
+        NavigationBuilder nav,
+        float cell,
+        MogulLocation location)
+    {
+        var queue = new Queue<Vector3>();
+        var visited = new HashSet<(int, int)>();
+        var offsets = new[]
+        {
+            new Vector3(cell, 0f, 0f),
+            new Vector3(-cell, 0f, 0f),
+            new Vector3(0f, 0f, cell),
+            new Vector3(0f, 0f, -cell),
+        };
+
+        queue.Enqueue(from);
+        visited.Add(GridKey(from, cell));
+        float minSpacingSqr = Spacing * Spacing;
+
+        while (queue.Count > 0 && visited.Count < BfsMaxVisited)
+        {
+            var current = queue.Dequeue();
+            var key = GridKey(current, cell);
+            if (!used.Contains(key) && !IsDoorClearanceCell(current, location))
+            {
+                var delta = current - from;
+                if (delta.x * delta.x + delta.z * delta.z >= minSpacingSqr)
+                    return current;
+            }
+
+            for (int i = 0; i < offsets.Length; i++)
+            {
+                var neighbor = SnapToGrid(current + offsets[i], cell);
+                var nkey = GridKey(neighbor, cell);
+                if (visited.Contains(nkey)) continue;
+                visited.Add(nkey);
+                if (!nav.IsWalkable(neighbor)) continue;
+                queue.Enqueue(neighbor);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsDoorClearanceCell(Vector3 local, MogulLocation location)
+    {
+        var s = BuildingPreview.GetEffectiveRoomSize(location);
+        return location.Door switch
+        {
+            WallSide.East  => local.x > s.x - DoorClearDepth && Mathf.Abs(local.z - s.z * 0.5f) < DoorClearWidth,
+            WallSide.West  => local.x < DoorClearDepth       && Mathf.Abs(local.z - s.z * 0.5f) < DoorClearWidth,
+            WallSide.North => local.z > s.z - DoorClearDepth && Mathf.Abs(local.x - s.x * 0.5f) < DoorClearWidth,
+            WallSide.South => local.z < DoorClearDepth       && Mathf.Abs(local.x - s.x * 0.5f) < DoorClearWidth,
+            _              => false,
+        };
+    }
+
+    private static (int, int) GridKey(Vector3 p, float cell) =>
+        (Mathf.FloorToInt(p.x / cell), Mathf.FloorToInt(p.z / cell));
 }

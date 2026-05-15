@@ -51,8 +51,26 @@ public static class SellDesk
         return false;
     }
 
+    public static bool TryGetCounterObject(string locationId, out GameObject counter)
+    {
+        if (_spawned.TryGetValue(locationId, out var inst) && inst.Counter != null)
+        {
+            counter = inst.Counter;
+            return true;
+        }
+
+        counter = null;
+        return false;
+    }
+
     public static bool TryGetStaffAnchor(string locationId, out Vector3 localPos)
     {
+        if (MogulPlacementSystem.TryGetPlacement(locationId, MogulPlacementSystem.Cashier, out var savedPos, out _))
+        {
+            localPos = savedPos;
+            return true;
+        }
+
         var location = PropertySystem.Find(locationId);
         if (location != null)
         {
@@ -62,6 +80,27 @@ public static class SellDesk
 
         localPos = default;
         return false;
+    }
+
+    public static bool TryGetDefaultStaffAnchor(string locationId, out Vector3 localPos, out Quaternion localRot)
+    {
+        var location = PropertySystem.Find(locationId);
+        if (location == null)
+        {
+            localPos = default;
+            localRot = default;
+            return false;
+        }
+
+        localPos = ComputeStaffAnchor(location);
+        if (location.SellDesk.HasStaffLocalRotation)
+            localRot = location.SellDesk.StaffLocalRotation;
+        else
+        {
+            var (_, deskRot) = ComputeBaseDeskTransform(location);
+            localRot = Quaternion.LookRotation(deskRot * Vector3.forward, Vector3.up);
+        }
+        return true;
     }
 
     public static bool TryGetRegister(string locationId, out GameObject register)
@@ -131,14 +170,24 @@ public static class SellDesk
 
     public static (Vector3 position, Quaternion rotation) ComputeDeskTransform(MogulLocation location)
     {
+        var (position, rotation) = ComputeBaseDeskTransform(location);
+        if (MogulPlacementSystem.TryGetPlacement(location.Id, MogulPlacementSystem.Desk, out var savedPos, out var savedRot))
+            return (savedPos, savedRot);
+
+        return (position, rotation);
+    }
+
+    public static (Vector3 position, Quaternion rotation) ComputeBaseDeskTransform(MogulLocation location)
+    {
         if (location.DeskOffset != Vector3.zero)
         {
             var rot = location.DeskRotation != default ? location.DeskRotation : RotationFacingDoor(location.Door);
             return (location.DeskOffset, rot);
         }
 
-        float w = location.RoomSize.x;
-        float d = location.RoomSize.z;
+        var roomSize = BuildingPreview.GetEffectiveRoomSize(location);
+        float w = roomSize.x;
+        float d = roomSize.z;
         const float wallOffset = 1.5f;
 
         return location.Door switch
@@ -149,6 +198,23 @@ public static class SellDesk
             WallSide.South => (new Vector3(w / 2f, 0f, d - wallOffset), Quaternion.Euler(0f, 180f, 0f)),
             _              => (new Vector3(w / 2f, 0f, wallOffset),     Quaternion.identity),
         };
+    }
+
+    public static void SetLiveDeskTransform(string locationId, Vector3 localPosition, Quaternion localRotation)
+    {
+        if (!_spawned.TryGetValue(locationId, out var inst) || inst.Counter == null) return;
+        inst.Counter.transform.localPosition = localPosition;
+        inst.Counter.transform.localRotation = localRotation;
+        inst.QueueAnchor = localPosition + (localRotation * Vector3.forward * 0.3f);
+    }
+
+    public static void ApplyPlacementOverrides(string locationId)
+    {
+        var location = PropertySystem.Find(locationId);
+        if (location == null) return;
+        var (pos, rot) = ComputeDeskTransform(location);
+        SetLiveDeskTransform(locationId, pos, rot);
+        CustomerManager.ClearQueueCache();
     }
 
     private static Quaternion RotationFacingDoor(WallSide door) => door switch

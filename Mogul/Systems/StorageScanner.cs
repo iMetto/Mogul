@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Il2CppScheduleOne;
 using Il2CppScheduleOne.DevUtilities;
 using Il2CppScheduleOne.Effects;
 using Il2CppScheduleOne.ItemFramework;
@@ -141,6 +142,57 @@ public static class StorageScanner
                 return true;
             }
         }
+        return false;
+    }
+
+    public static bool TryAddProductStack(GameObject buildingRoot, string productId, int quantity, out string error)
+    {
+        error = null;
+        if (buildingRoot == null)
+        {
+            error = "building root missing";
+            return false;
+        }
+        if (string.IsNullOrEmpty(productId) || quantity <= 0)
+        {
+            error = "invalid product or quantity";
+            return false;
+        }
+
+        ProductDefinition def;
+        try
+        {
+            def = Registry.GetItem<ProductDefinition>(productId);
+        }
+        catch (System.Exception ex)
+        {
+            error = "product lookup failed: " + ex.Message;
+            return false;
+        }
+        if (def == null)
+        {
+            error = "product not found: " + productId;
+            return false;
+        }
+
+        var item = new ProductItemInstance(def, quantity, EQuality.Standard);
+        var storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
+        foreach (var storage in storages)
+        {
+            var slots = storage.ItemSlots;
+            if (slots == null) continue;
+            try
+            {
+                if (ItemSlot.TryInsertItemIntoSet(slots, item))
+                    return true;
+            }
+            catch (System.Exception ex)
+            {
+                error = "slot insert failed: " + ex.Message;
+            }
+        }
+
+        error ??= "no storage accepted product";
         return false;
     }
 }

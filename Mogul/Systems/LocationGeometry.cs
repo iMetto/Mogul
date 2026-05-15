@@ -52,8 +52,8 @@ public static class LocationGeometry
     // delivery anchors that happen to sit inside our room and (b) validate exit targets.
     public static bool IsInsideRoomAABB(this MogulLocation location, Vector3 worldPos)
     {
-        var c = location.WorldPosition;
-        var s = location.RoomSize;
+        var c = BuildingPreview.GetEffectiveWorldPosition(location);
+        var s = BuildingPreview.GetEffectiveRoomSize(location);
         return worldPos.x >= c.x && worldPos.x <= c.x + s.x
             && worldPos.z >= c.z && worldPos.z <= c.z + s.z
             && worldPos.y >= c.y - 1f && worldPos.y <= c.y + s.y + 1f;
@@ -65,8 +65,8 @@ public static class LocationGeometry
     public static Vector3 ComputeDoorExterior(this MogulLocation location)
     {
         const float offset = 3f;
-        var c = location.WorldPosition;
-        var s = location.RoomSize;
+        var c = BuildingPreview.GetEffectiveWorldPosition(location);
+        var s = BuildingPreview.GetEffectiveRoomSize(location);
         return location.Door switch
         {
             WallSide.North => c + new Vector3(s.x / 2f, 0f, s.z + offset),
@@ -99,7 +99,7 @@ public static class LocationGeometry
         {
             if (!PropertySystem.IsOwned(loc.Id)) continue;
             if (!LocationSpawner.TryGetSpawnedBuilding(loc.Id, out _)) continue;
-            float dist = Vector3.Distance(playerPos, loc.WorldPosition);
+            float dist = Vector3.Distance(playerPos, BuildingPreview.GetEffectiveWorldPosition(loc));
             if (dist < bestDist) { bestDist = dist; nearest = loc; }
         }
         return nearest != null;

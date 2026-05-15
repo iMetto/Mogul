@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Il2CppScheduleOne.Weather;
 using MelonLoader;
 using Mogul.Data;
 using S1MAPI.Building;
@@ -57,8 +58,9 @@ public static class LocationSpawner
             var ov = BuildingPreview.HasOverrides(location.Id) ? BuildingPreview.GetOrCreate(location.Id) : null;
             if (ov != null) design = ApplyDesignOverrides(design, ov);
 
+            var roomSize = BuildingPreview.GetEffectiveRoomSize(location);
             var builder = new BuildingBuilder(location.Name)
-                .DefineRoom(location.RoomSize.x, location.RoomSize.y, location.RoomSize.z);
+                .DefineRoom(roomSize.x, roomSize.y, roomSize.z);
 
             design.Apply(builder, location);
 
@@ -77,11 +79,12 @@ public static class LocationSpawner
                 .AddStairs(location.Door, foundationHeight: foundationHeight);
 
             var go = builder.Build();
-            go.transform.position = location.WorldPosition - new Vector3(0f, foundationHeight, 0f);
+            go.transform.position = BuildingPreview.GetEffectiveWorldPosition(location) - new Vector3(0f, foundationHeight, 0f);
+            ConfigureWeatherEnclosure(go, roomSize, foundationHeight);
             builder.FlattenTerrain();
-            TerrainClearer.ClearAroundBuilding(go, location.RoomSize, new ClearingOptions { Padding = 4f });
+            TerrainClearer.ClearAroundBuilding(go, roomSize, new ClearingOptions { Padding = 4f });
 
-            var (doorPos, doorRot) = GetDoorLocalTransform(location.RoomSize, location.Door);
+            var (doorPos, doorRot) = GetDoorLocalTransform(roomSize, location.Door);
             var doorPrefab = ov?.DoorPrefabKey != null
                 ? BuildingPreview.ResolveDoorPrefab(ov.DoorPrefabKey)
                 : Prefabs.ClassicalWoodenDoor;
@@ -103,18 +106,33 @@ public static class LocationSpawner
                 if (existingRacks.Count > 0)
                 {
                     _rackObjects[locId] = existingRacks;
-                    foreach (var rackGo in existingRacks)
-                        rackGo.transform.SetParent(go.transform, true);
+                    for (int i = 0; i < existingRacks.Count && i < location.StorageRacks.Length; i++)
+                    {
+                        var rackGo = existingRacks[i];
+                        if (rackGo == null) continue;
+                        var rack = location.StorageRacks[i];
+                        rackGo.transform.SetParent(go.transform, false);
+                        rackGo.transform.localPosition = GetRackSpawnPosition(location.Id, i, rack);
+                        rackGo.transform.localRotation = GetRackSpawnRotation(location.Id, i, rack);
+                    }
+                    ApplyRackPlacementOverrides(locId);
                 }
                 else
                 {
                     _rackObjects[locId] = new List<GameObject>();
-                    foreach (var rack in location.StorageRacks)
+                    for (int i = 0; i < location.StorageRacks.Length; i++)
                     {
-                        var pos = rack.LocalPos + new Vector3(0f, 0.5f, 0f);
-                        placer.Place(rack.Prefab, pos, rack.Rotation, networked: true,
+                        var rack = location.StorageRacks[i];
+                        var pos = GetRackSpawnPosition(location.Id, i, rack);
+                        var rot = GetRackSpawnRotation(location.Id, i, rack);
+                        placer.Place(rack.Prefab, pos, rot, networked: true,
                             onReady: rackGo =>
                             {
+                                if (rackGo != null)
+                                {
+                                    rackGo.transform.localPosition = pos;
+                                    rackGo.transform.localRotation = rot;
+                                }
                                 if (_rackObjects.TryGetValue(locId, out var list))
                                     list.Add(rackGo);
                             });
@@ -125,10 +143,16 @@ public static class LocationSpawner
                     for (int i = existingRacks.Count; i < location.StorageRacks.Length; i++)
                     {
                         var rack = location.StorageRacks[i];
-                        var pos = rack.LocalPos + new Vector3(0f, 0.5f, 0f);
-                        placer.Place(rack.Prefab, pos, rack.Rotation, networked: true,
+                        var pos = GetRackSpawnPosition(location.Id, i, rack);
+                        var rot = GetRackSpawnRotation(location.Id, i, rack);
+                        placer.Place(rack.Prefab, pos, rot, networked: true,
                             onReady: rackGo =>
                         {
+                            if (rackGo != null)
+                            {
+                                rackGo.transform.localPosition = pos;
+                                rackGo.transform.localRotation = rot;
+                            }
                             if (_rackObjects.TryGetValue(locId, out var list))
                                 list.Add(rackGo);
                         });
@@ -146,6 +170,35 @@ public static class LocationSpawner
             MelonLogger.Error($"[Mogul] SpawnBuilding failed for {location.Id}: {ex}");
         }
 
+    }
+
+    private static void ConfigureWeatherEnclosure(GameObject buildingRoot, Vector3 roomSize, float foundationHeight)
+    {
+        if (buildingRoot == null) return;
+
+        try
+        {
+            var enclosure = buildingRoot.GetComponent<WeatherEnclosure>() ?? buildingRoot.AddComponent<WeatherEnclosure>();
+
+            var volumeGo = new GameObject("Mogul_WeatherEnclosureVolume");
+            volumeGo.transform.SetParent(buildingRoot.transform, false);
+            volumeGo.transform.localPosition = Vector3.zero;
+            volumeGo.transform.localRotation = Quaternion.identity;
+
+            var basic = volumeGo.AddComponent<BasicEnclosure>();
+            basic._center = new Vector3(roomSize.x * 0.5f, foundationHeight + roomSize.y * 0.5f, roomSize.z * 0.5f);
+            basic._size = new Vector3(roomSize.x + 0.75f, roomSize.y + 1.25f, roomSize.z + 0.75f);
+            basic._isBlendZone = false;
+
+            enclosure.Start();
+            var env = UnityEngine.Object.FindObjectOfType<EnvironmentManager>();
+            env?.RegisterEnclosure(enclosure);
+            env?.RegisterWeatherEnclosure(enclosure);
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Warning("[Mogul] Weather enclosure setup failed: " + ex.Message);
+        }
     }
     public static void RebuildBuilding(string locationId)
     {
@@ -182,6 +235,53 @@ public static class LocationSpawner
     public static bool TryGetNavigationBuilder(string locationId, out NavigationBuilder nb)
     => _navBuilders.TryGetValue(locationId, out nb);
 
+    public static bool TryGetRackLocalTransform(string locationId, int index, out Vector3 localPos, out Quaternion localRot)
+    {
+        if (_rackObjects.TryGetValue(locationId, out var racks) && racks != null && index >= 0 && index < racks.Count && racks[index] != null)
+        {
+            localPos = racks[index].transform.localPosition;
+            localRot = racks[index].transform.localRotation;
+            return true;
+        }
+
+        var location = PropertySystem.Find(locationId);
+        if (location != null && index >= 0 && index < location.StorageRacks.Length)
+        {
+            var rack = location.StorageRacks[index];
+            localPos = GetRackSpawnPosition(locationId, index, rack);
+            localRot = GetRackSpawnRotation(locationId, index, rack);
+            return true;
+        }
+
+        localPos = default;
+        localRot = default;
+        return false;
+    }
+
+    public static void SetRackLiveTransform(string locationId, int index, Vector3 localPos, Quaternion localRot)
+    {
+        if (!_rackObjects.TryGetValue(locationId, out var racks) || racks == null) return;
+        if (index < 0 || index >= racks.Count || racks[index] == null) return;
+
+        racks[index].transform.localPosition = localPos;
+        racks[index].transform.localRotation = localRot;
+    }
+
+    public static void ApplyRackPlacementOverrides(string locationId)
+    {
+        if (!_rackObjects.TryGetValue(locationId, out var racks) || racks == null) return;
+        for (int i = 0; i < racks.Count; i++)
+        {
+            if (racks[i] == null) continue;
+            string objectId = i == 0 ? MogulPlacementSystem.Storage0 : "storage_" + i;
+            if (MogulPlacementSystem.TryGetPlacement(locationId, objectId, out var pos, out var rot))
+            {
+                racks[i].transform.localPosition = pos;
+                racks[i].transform.localRotation = rot;
+            }
+        }
+    }
+
     private static List<GameObject> GetLiveRackObjects(string locationId)
     {
         if (!_rackObjects.TryGetValue(locationId, out var racks) || racks == null)
@@ -202,6 +302,22 @@ public static class LocationSpawner
         foreach (var rack in racks)
             rack.transform.SetParent(null, true);
         _rackObjects[locationId] = racks;
+    }
+
+    private static Vector3 GetRackSpawnPosition(string locationId, int index, StorageRackConfig rack)
+    {
+        string objectId = index == 0 ? MogulPlacementSystem.Storage0 : "storage_" + index;
+        return MogulPlacementSystem.TryGetPlacement(locationId, objectId, out var pos, out _)
+            ? pos
+            : rack.LocalPos + new Vector3(0f, 0.5f, 0f);
+    }
+
+    private static Quaternion GetRackSpawnRotation(string locationId, int index, StorageRackConfig rack)
+    {
+        string objectId = index == 0 ? MogulPlacementSystem.Storage0 : "storage_" + index;
+        return MogulPlacementSystem.TryGetPlacement(locationId, objectId, out _, out var rot)
+            ? rot
+            : rack.Rotation;
     }
 
 

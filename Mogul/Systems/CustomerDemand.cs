@@ -49,6 +49,9 @@ public static class CustomerDemand
     private const float MinAppealToStay = 0.15f;
 
     public static CustomerPreferences GeneratePreferences(int seed)
+        => GeneratePreferences(seed, MogulNetwork.Data.Reach);
+
+    public static CustomerPreferences GeneratePreferences(int seed, int reach)
     {
         var rng = new System.Random(seed);
 
@@ -60,9 +63,9 @@ public static class CustomerDemand
         else if (roll < 0.90) qualityExp = 0.31f + (float)(rng.NextDouble() * 0.24);
         else                  qualityExp = 0.56f + (float)(rng.NextDouble() * 0.19);
 
-        // Budget derived from current store reach tier.
+        // Budget derived from store reach tier.
         // 20% of walk-ins are outliers and roll from the upper band.
-        var tier = ReachSystem.GetTier(MogulNetwork.Data.Reach);
+        var tier = ReachSystem.GetTier(reach);
         var (budgetMin, budgetMax) = ReachSystem.GetBudgetRange(tier, rng);
         float budget = budgetMin + (float)(rng.NextDouble() * (budgetMax - budgetMin));
 
