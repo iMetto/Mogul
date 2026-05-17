@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Il2CppScheduleOne.NPCs;
+using Il2CppScheduleOne.PlayerScripts;
 using Il2CppScheduleOne.VoiceOver;
 using MelonLoader;
 using UnityEngine;
@@ -20,6 +21,8 @@ public static class CheckoutHandler
 
     private static NPC _customer;
     private static GameObject _buildingRoot;
+    private static bool _savedCanMove = true;
+    private static bool _playerLocked;
 
     public static void Open(string locationId, NPC npc, GameObject buildingRoot, List<SelectedProduct> order)
     {
@@ -31,6 +34,7 @@ public static class CheckoutHandler
         CustomerOrder = order;
 
         IsOpen = true;
+        LockPlayerOnCustomer(npc);
         MelonLogger.Msg($"[Mogul] CheckoutHandler: opened for {locationId} — {order.Count} item(s)");
     }
 
@@ -109,6 +113,51 @@ public static class CheckoutHandler
         _customer = null;
         _buildingRoot = null;
         CustomerOrder = new List<SelectedProduct>();
+        UnlockPlayer();
         OnClosed?.Invoke(locationId, result);
+    }
+
+    private static void LockPlayerOnCustomer(NPC customer)
+    {
+        if (_playerLocked) return;
+
+        try
+        {
+            var movement = PlayerMovement.Instance;
+            if (movement != null)
+            {
+                _savedCanMove = movement.CanMove;
+                movement.CanMove = false;
+            }
+
+            var camera = PlayerCamera.Instance;
+            if (camera != null)
+            {
+                if (customer != null && customer.transform != null)
+                    camera.FocusCameraOnTarget(customer.transform);
+                camera.SetCanLook(false);
+            }
+
+            _playerLocked = true;
+        }
+        catch { }
+    }
+
+    private static void UnlockPlayer()
+    {
+        if (!_playerLocked) return;
+
+        try
+        {
+            PlayerCamera.Instance?.StopFocus();
+            PlayerCamera.Instance?.SetCanLook(true);
+
+            var movement = PlayerMovement.Instance;
+            if (movement != null)
+                movement.CanMove = _savedCanMove;
+        }
+        catch { }
+
+        _playerLocked = false;
     }
 }

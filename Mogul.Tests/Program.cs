@@ -30,6 +30,8 @@ internal static class Program
         Run("budtender order timing follows working day", BudtenderOrderTimingFollowsWorkingDay);
         Run("budtender product catalog has starter weed", BudtenderProductCatalogHasStarterWeed);
         Run("strain recipes encode ordered ingredients", StrainRecipesEncodeOrderedIngredients);
+        Run("strain recipe ingredients allow duplicate ordered slots", StrainRecipeIngredientsAllowDuplicateOrderedSlots);
+        Run("strain recipe ingredient removal compacts slots", StrainRecipeIngredientRemovalCompactsSlots);
         Run("strain ingredient slots unlock by reach", StrainIngredientSlotsUnlockByReach);
         Run("demand simulation is deterministic and depletes inventory", DemandSimulationIsDeterministicAndDepletesInventory);
         Run("quest progress reads owned properties and employees", QuestProgressReadsSaveData);
@@ -313,13 +315,44 @@ internal static class Program
         AssertEqual("OG Kush + Cuke + Gasoline", StrainMixingSystem.BuildRecipeName(request.BaseProductId, request.IngredientIds));
     }
 
+    private static void StrainRecipeIngredientsAllowDuplicateOrderedSlots()
+    {
+        var ingredients = new List<string>();
+
+        AssertTrue(StrainMixingSystem.TryAddIngredient(ingredients, "cuke", 3), "first ingredient was not added");
+        AssertTrue(StrainMixingSystem.TryAddIngredient(ingredients, "cuke", 3), "duplicate ingredient was not added");
+        AssertTrue(StrainMixingSystem.TryAddIngredient(ingredients, "gasoline", 3), "third ingredient was not added");
+        AssertTrue(!StrainMixingSystem.TryAddIngredient(ingredients, "viagra", 3), "ingredient added past slot limit");
+
+        AssertEqual(3, ingredients.Count);
+        AssertEqual("cuke", ingredients[0]);
+        AssertEqual("cuke", ingredients[1]);
+        AssertEqual("gasoline", ingredients[2]);
+    }
+
+    private static void StrainRecipeIngredientRemovalCompactsSlots()
+    {
+        var ingredients = new List<string> { "cuke", "gasoline", "viagra" };
+
+        AssertTrue(StrainMixingSystem.TryRemoveIngredientAt(ingredients, 1), "ingredient was not removed");
+
+        AssertEqual(2, ingredients.Count);
+        AssertEqual("cuke", ingredients[0]);
+        AssertEqual("viagra", ingredients[1]);
+        AssertTrue(!StrainMixingSystem.TryRemoveIngredientAt(ingredients, 5), "out-of-range removal should fail");
+    }
+
     private static void StrainIngredientSlotsUnlockByReach()
     {
         AssertEqual(0, StrainMixingSystem.GetUnlockedIngredientSlots(0));
         AssertEqual(1, StrainMixingSystem.GetUnlockedIngredientSlots(750));
         AssertEqual(2, StrainMixingSystem.GetUnlockedIngredientSlots(3500));
-        AssertEqual(3, StrainMixingSystem.GetUnlockedIngredientSlots(10000));
-        AssertEqual(4, StrainMixingSystem.GetUnlockedIngredientSlots(20000));
+        AssertEqual(3, StrainMixingSystem.GetUnlockedIngredientSlots(6000));
+        AssertEqual(4, StrainMixingSystem.GetUnlockedIngredientSlots(10000));
+        AssertEqual(5, StrainMixingSystem.GetUnlockedIngredientSlots(14000));
+        AssertEqual(6, StrainMixingSystem.GetUnlockedIngredientSlots(20000));
+        AssertEqual(7, StrainMixingSystem.GetUnlockedIngredientSlots(25000));
+        AssertEqual(8, StrainMixingSystem.GetUnlockedIngredientSlots(35000));
     }
 
     private static void DemandSimulationIsDeterministicAndDepletesInventory()
@@ -355,13 +388,13 @@ internal static class Program
             },
         };
 
-        MogulQuestSystem.AddProgress(data, MogulQuestSystem.BuildEventKey(MogulObjectiveEvent.KnockoutNpc, "westville_mark_01"), 1);
+        MogulQuestSystem.AddProgress(data, "cash_threshold_3000", 1);
 
         var firstQuest = MogulQuestSystem.Find("westville_statement");
         var task = MogulQuestSystem.Find("move_ogkush_12");
 
         AssertEqual(1, MogulQuestSystem.GetProgress(firstQuest, data));
-        AssertTrue(MogulQuestSystem.IsComplete(firstQuest, data), "first quest should be complete after target knockout");
+        AssertTrue(MogulQuestSystem.IsComplete(firstQuest, data), "first quest should be complete after cash threshold");
 
         MogulQuestSystem.Claim(firstQuest, data);
         AssertTrue(MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockPropertiesTab), "properties tab should unlock");

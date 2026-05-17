@@ -122,6 +122,12 @@ public static class EmployeeSystem
         MogulNetwork.RequestAction(MogulActions.HireEmployee, $"{locationId}:{role}");
     }
 
+    public static void RequestFire(string locationId, EmployeeRole role)
+    {
+        if (string.IsNullOrEmpty(locationId)) return;
+        MogulNetwork.RequestAction(MogulActions.FireEmployee, $"{locationId}:{role}");
+    }
+
     public static void RequestBudtenderOrder(string locationId, string productId, IReadOnlyList<string> ingredientIds = null)
     {
         if (string.IsNullOrEmpty(locationId) || string.IsNullOrEmpty(productId)) return;
@@ -141,10 +147,11 @@ public static class EmployeeSystem
         foreach (var location in PropertySystem.Catalog)
         {
             if (!PropertySystem.IsOwned(location.Id)) continue;
-            if (syncGrowVisuals && HasRole(location.Id, EmployeeRole.Budtender))
+            bool hasBudtender = HasRole(location.Id, EmployeeRole.Budtender);
+            if (syncGrowVisuals && hasBudtender)
                 SyncGrowTent(location.Id);
             var order = GetBudtenderOrder(location.Id);
-            if (EmployeeProduction.IsOrderComplete(order, currentDay, currentTime))
+            if (hasBudtender && EmployeeProduction.IsOrderComplete(order, currentDay, currentTime))
             {
                 MogulNetwork.RequestAction(MogulActions.CompleteBudtenderOrder, location.Id);
             }
@@ -354,6 +361,7 @@ public static class EmployeeSystem
         if (location == null) return;
 
         var employees = GetEmployees(locationId);
+        DespawnMissingWorkers(locationId, employees);
         for (int i = 0; i < employees.Count; i++)
         {
             var employee = employees[i];
@@ -390,6 +398,26 @@ public static class EmployeeSystem
                 }
             });
         }
+    }
+
+    private static void DespawnMissingWorkers(string locationId, IReadOnlyList<HiredEmployeeData> employees)
+    {
+        var savedIds = new HashSet<string>();
+        for (int i = 0; i < employees.Count; i++)
+            if (!string.IsNullOrEmpty(employees[i]?.Id))
+                savedIds.Add(employees[i].Id);
+
+        var toRemove = new List<string>();
+        foreach (var kvp in _spawned)
+        {
+            if (kvp.Value.LocationId != locationId) continue;
+            if (savedIds.Contains(kvp.Key)) continue;
+            if (kvp.Value.Npc != null)
+                CustomerSpawner.Despawn(kvp.Value.Npc);
+            toRemove.Add(kvp.Key);
+        }
+        foreach (var id in toRemove)
+            _spawned.Remove(id);
     }
 
     private static void DisableOutdoorWeather(NPC npc)
@@ -621,7 +649,7 @@ public static class EmployeeSystem
             || currentTime >= EmployeeProduction.WorkingDayEnd)
             return false;
 
-        productId = order.ProductId;
+        productId = !string.IsNullOrWhiteSpace(order.BaseProductId) ? order.BaseProductId : order.ProductId;
         return !string.IsNullOrEmpty(productId);
     }
 

@@ -24,12 +24,19 @@ public static class MogulPersistence
     public static void ResetData()
     {
         MogulNetwork.ReplaceData(new MogulSaveData());
+        LocationSpawner.ClearSpawned();
     }
 
     private static string GetSavePath()
     {
+        var loadMgr = Singleton<LoadManager>.Instance;
+        string activePath = loadMgr?.ActiveSaveInfo?.SavePath;
+        if (!string.IsNullOrEmpty(activePath))
+            return Path.Combine(activePath, "Mogul", "save.json");
+
         var mgr = Singleton<SaveManager>.Instance;
         if (mgr == null) return null;
+        if (string.IsNullOrEmpty(mgr.SaveName)) return null;
         return Path.Combine(mgr.PlayersSavePath, mgr.SaveName, "Mogul", "save.json");
     }
 

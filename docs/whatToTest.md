@@ -5,16 +5,30 @@ host path is stable.
 
 ## App Shell
 
+Confirmed 2026-05-17:
+
+- Load into `Main`.
+- Open the Mogul app.
+
 1. Load into `Main`.
 2. Open the Mogul app.
 3. Confirm the top-level tabs are:
    - `PROPERTIES`
    - `ORDERS`
    - `QUESTS`
-4. Confirm `PROPERTIES` remains locked until the quest unlock flag exists.
-5. Confirm `QUESTS` still opens by default on a fresh/progression save.
+4. On a fresh save, confirm `PROPERTIES` remains locked before the first quest is claimed.
+5. Reach $3,000 total cash/app balance.
+6. Claim `Open For Business` in `QUESTS`.
+7. Confirm `PROPERTIES` appears after claiming the quest.
+8. Confirm `QUESTS` still opens by default on a fresh/progression save.
 
 ## Properties And Pins
+
+Confirmed 2026-05-17:
+
+- Owned and freshly bought Mogul properties create map pins.
+- A pre-owned property creates a pin after load.
+- Tracking a quest adds a quest pin on the existing Westville pin.
 
 1. Use an existing save with owned Mogul properties, or buy one.
 2. Load into `Main`.
@@ -34,6 +48,13 @@ Notes:
   normal-looking icon.
 
 ## Walk-In Customers And Queue
+
+Confirmed 2026-05-17:
+
+- Owned property with stocked rack can spawn multiple walk-in customers.
+- More than one customer can be inside.
+- Queued customers leave space around the doorway.
+- Leaving customers do not permanently block queue advancement.
 
 1. Own a property and make sure its building is spawned.
 2. Add sellable product to the property storage rack.
@@ -71,6 +92,10 @@ Notes:
    - Customer should leave.
 
 ## Cashier Delay
+
+Confirmed 2026-05-17:
+
+- Cashier delay flow works from hire through next queued customer advance.
 
 1. Hire a cashier.
 2. Let a customer reach the counter.
@@ -111,6 +136,12 @@ Notes:
 
 ## Online Orders
 
+Confirmed 2026-05-17:
+
+- Orders generate for stocked owned locations.
+- Decline removes an open order.
+- Fulfill removes required packages and increases register balance.
+
 1. Own a property.
 2. Make sure the building is spawned.
 3. Put sellable product in that property's storage rack.
@@ -148,13 +179,19 @@ Higher-tier buyer types need enough reach before they become eligible.
 
 1. Hire a cashier.
    - Cashier NPC should spawn at the cashier anchor.
-2. Hire a budtender.
+2. Fire the cashier.
+   - Cashier NPC should despawn.
+   - The player should be able to take counter orders manually.
+3. Hire a budtender.
    - Budtender NPC should spawn.
    - Grow tent should spawn if the location supports it.
-3. Start a budtender strain order.
-4. Confirm the order appears in the Manage `ORDERS`/`GROW` sections.
-5. Let the ready day/time pass.
-6. Complete the budtender order.
+4. Fire the budtender.
+   - Budtender NPC should despawn.
+   - Grow tent should despawn.
+5. Rehire a budtender and start a budtender strain order.
+6. Confirm the order appears in the Manage `ORDERS`/`GROW` sections.
+7. Let the ready day/time pass.
+8. Complete the budtender order.
    - Product should try to insert into real storage.
    - If storage insert fails, product should fall back to virtual inventory.
 

@@ -19,6 +19,7 @@ public static class MogulActions
     public const string AddRegisterSale = "add_register_sale";
     public const string CollectRegister = "collect_register";
     public const string HireEmployee = "hire_employee";
+    public const string FireEmployee = "fire_employee";
     public const string AddVirtualInventory = "add_virtual_inventory";
     public const string StartBudtenderOrder = "start_budtender_order";
     public const string CompleteBudtenderOrder = "complete_budtender_order";

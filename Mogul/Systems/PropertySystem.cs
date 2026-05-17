@@ -93,6 +93,8 @@ public static class PropertySystem
     public static bool IsVisible(string id, MogulSaveData data = null)
     {
         data ??= MogulNetwork.Data;
+        if (data?.RegisteredLocationIds != null && data.RegisteredLocationIds.Contains(id))
+            return true;
         if (id == "loc_westville_01")
             return MogulQuestSystem.IsUnlocked(data, MogulQuestSystem.UnlockPropertiesTab);
         if (id == "loc_downtown_01")

@@ -38,74 +38,164 @@ public static class StorageScanner
     public static List<StorageProduct> Scan(GameObject buildingRoot)
     {
         var aggregated = new Dictionary<string, StorageProduct>();
+        if (buildingRoot == null) return new List<StorageProduct>();
 
-        var storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
+        StorageEntity[] storages;
+        try
+        {
+            storages = buildingRoot.GetComponentsInChildren<StorageEntity>(true);
+        }
+        catch (System.Exception ex)
+        {
+            MelonLogger.Warning($"[Mogul] Storage scan failed: {ex.Message}");
+            return new List<StorageProduct>();
+        }
+
         foreach (var storage in storages)
         {
-            var slots = storage.ItemSlots;
+            if (storage == null) continue;
+
+            Il2CppSystem.Collections.Generic.List<ItemSlot> slots;
+            try
+            {
+                slots = storage.ItemSlots;
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Warning($"[Mogul] Storage slot read failed: {ex.Message}");
+                continue;
+            }
             if (slots == null) continue;
 
             for (int i = 0; i < slots.Count; i++)
             {
-                var slot = slots[i];
-                if (slot?.ItemInstance == null) continue;
-
-                var product = slot.ItemInstance.TryCast<ProductItemInstance>();
-                if (product == null) continue;
-
-                var def = product.Definition?.TryCast<ProductDefinition>();
-                if (def?.ID == null) continue;
-
-                int quality = (int)product.Quality;
-                string key = $"{def.ID}:{quality}";
-
-                if (aggregated.TryGetValue(key, out var existing))
+                try
                 {
-                    existing.TotalPackages += slot.Quantity;
-                }
-                else
-                {
-                    var effectIds = new List<string>();
-                    try
+                    var slot = slots[i];
+                    if (slot?.ItemInstance == null) continue;
+
+                    var product = slot.ItemInstance.TryCast<ProductItemInstance>();
+                    if (product == null) continue;
+
+                    var def = product.Definition?.TryCast<ProductDefinition>();
+                    if (def?.ID == null) continue;
+
+                    int quality = (int)product.Quality;
+                    string key = $"{def.ID}:{quality}";
+
+                    if (aggregated.TryGetValue(key, out var existing))
                     {
-                        if (def.Properties != null)
-                            for (int ei = 0; ei < def.Properties.Count; ei++)
-                            {
-                                var eff = def.Properties[ei];
-                                if (eff != null)
+                        existing.TotalPackages += slot.Quantity;
+                    }
+                    else
+                    {
+                        var effectIds = new List<string>();
+                        try
+                        {
+                            if (def.Properties != null)
+                                for (int ei = 0; ei < def.Properties.Count; ei++)
                                 {
-                                    effectIds.Add(eff.name.ToLower());
+                                    var eff = def.Properties[ei];
+                                    if (eff != null)
+                                    {
+                                        effectIds.Add(eff.name.ToLower());
+                                    }
                                 }
-                            }
-                    }
-                    catch (System.Exception ex)
-                    {
-                        MelonLogger.Warning($"[Mogul:EffectName] failed reading effects for {def.ID}: {ex.Message}");
-                    }
+                        }
+                        catch (System.Exception ex)
+                        {
+                            MelonLogger.Warning($"[Mogul:EffectName] failed reading effects for {def.ID}: {ex.Message}");
+                        }
 
-                    float basePrice;
-                    try { basePrice = NetworkSingleton<ProductManager>.Instance?.GetPrice(def) ?? def.MarketValue; }
-                    catch { basePrice = def.MarketValue; }
-                    string locationId = LocationIdFromRoot(buildingRoot);
-                    float price = PricingSystem.ResolvePrice(locationId, def.ID, quality, basePrice);
+                        float basePrice;
+                        try { basePrice = NetworkSingleton<ProductManager>.Instance?.GetPrice(def) ?? def.MarketValue; }
+                        catch { basePrice = def.MarketValue; }
+                        string locationId = LocationIdFromRoot(buildingRoot);
+                        float price = PricingSystem.ResolvePrice(locationId, def.ID, quality, basePrice);
 
-                    aggregated[key] = new StorageProduct
-                    {
-                        ProductId     = def.ID,
-                        DisplayName   = def.Name ?? def.ID,
-                        QualityLevel  = quality,
-                        TotalPackages = slot.Quantity,
-                        BasePrice     = basePrice,
-                        Price         = price,
-                        EffectIds     = effectIds,
-                    };
+                        aggregated[key] = new StorageProduct
+                        {
+                            ProductId     = def.ID,
+                            DisplayName   = def.Name ?? def.ID,
+                            QualityLevel  = quality,
+                            TotalPackages = slot.Quantity,
+                            BasePrice     = basePrice,
+                            Price         = price,
+                            EffectIds     = effectIds,
+                        };
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    MelonLogger.Warning($"[Mogul] Storage slot scan skipped: {ex.Message}");
                 }
             }
         }
 
         var result = new List<StorageProduct>(aggregated.Values);
-        result.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, System.StringComparison.OrdinalIgnoreCase));
+        result.Sort((a, b) => string.Compare(a?.DisplayName ?? "", b?.DisplayName ?? "", System.StringComparison.OrdinalIgnoreCase));
         return result;
+    }
+
+    public static List<StorageProduct> ScanVirtual(string locationId)
+    {
+        var result = new List<StorageProduct>();
+        if (string.IsNullOrEmpty(locationId)
+            || MogulNetwork.Data?.LocationVirtualInventory == null
+            || !MogulNetwork.Data.LocationVirtualInventory.TryGetValue(locationId, out var inventory)
+            || inventory == null)
+            return result;
+
+        foreach (var kvp in inventory)
+        {
+            if (string.IsNullOrEmpty(kvp.Key) || kvp.Value <= 0) continue;
+            try
+            {
+                result.Add(CreateVirtualProduct(locationId, kvp.Key, kvp.Value));
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Warning($"[Mogul] Virtual inventory row skipped for {kvp.Key}: {ex.Message}");
+            }
+        }
+
+        result.Sort((a, b) => string.Compare(a?.DisplayName ?? "", b?.DisplayName ?? "", System.StringComparison.OrdinalIgnoreCase));
+        return result;
+    }
+
+    private static StorageProduct CreateVirtualProduct(string locationId, string productId, int quantity)
+    {
+        const int quality = 2;
+        string displayName = productId;
+        float basePrice = 0f;
+
+        if (EmployeeProduction.TryGetBudtenderProduct(productId, out var budtenderProduct))
+            displayName = budtenderProduct.DisplayName;
+
+        try
+        {
+            var def = Registry.GetItem<ProductDefinition>(productId);
+            if (def != null)
+            {
+                displayName = def.Name ?? displayName;
+                try { basePrice = NetworkSingleton<ProductManager>.Instance?.GetPrice(def) ?? def.MarketValue; }
+                catch { basePrice = def.MarketValue; }
+            }
+        }
+        catch
+        {
+        }
+
+        return new StorageProduct
+        {
+            ProductId = productId,
+            DisplayName = displayName,
+            QualityLevel = quality,
+            TotalPackages = quantity,
+            BasePrice = basePrice,
+            Price = PricingSystem.ResolvePrice(locationId, productId, quality, basePrice),
+            EffectIds = new List<string>(),
+        };
     }
 
     // Removes one package from the first slot matching productId + qualityLevel.

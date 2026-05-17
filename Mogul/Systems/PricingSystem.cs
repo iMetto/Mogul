@@ -12,16 +12,22 @@ public static class PricingSystem
 
     public static float GetLocationMultiplier(string locationId)
     {
-        return MogulNetwork.Data.LocationPriceMultipliers.TryGetValue(locationId, out var value)
+        return MogulNetwork.Data?.LocationPriceMultipliers != null
+            && !string.IsNullOrEmpty(locationId)
+            && MogulNetwork.Data.LocationPriceMultipliers.TryGetValue(locationId, out var value)
             ? ClampMultiplier(value)
             : 1f;
     }
 
     public static ProductPriceData GetProductPricing(string locationId, string productId, int qualityLevel)
     {
-        if (MogulNetwork.Data.LocationProductPrices.TryGetValue(locationId, out var map)
+        if (MogulNetwork.Data?.LocationProductPrices != null
+            && !string.IsNullOrEmpty(locationId)
+            && !string.IsNullOrEmpty(productId)
+            && MogulNetwork.Data.LocationProductPrices.TryGetValue(locationId, out var map)
+            && map != null
             && map.TryGetValue(Key(productId, qualityLevel), out var data))
-            return data;
+            return data ?? new ProductPriceData();
         return new ProductPriceData();
     }
 
@@ -105,7 +111,7 @@ public static class PricingSystem
         }
 
         var key = Key(productId, qualityLevel);
-        if (!map.TryGetValue(key, out var pricing))
+        if (!map.TryGetValue(key, out var pricing) || pricing == null)
         {
             pricing = new ProductPriceData();
             map[key] = pricing;

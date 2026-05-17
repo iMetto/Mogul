@@ -84,6 +84,28 @@ public static class MogulNetwork
             _client?.BroadcastMessage(new MogulActionMessage { Action = action, Payload = payload });
     }
 
+    public static bool RequestFulfillOnlineOrder(string orderId, out string error)
+    {
+        error = null;
+        if (!IsHost)
+        {
+            _client?.BroadcastMessage(new MogulActionMessage { Action = MogulActions.FulfillOnlineOrder, Payload = orderId });
+            return true;
+        }
+
+        EnsureDataCollections(_localData);
+        if (OnlineOrderSystem.TryFulfillOrder(_localData, orderId, out error))
+        {
+            MelonLogger.Msg($"[Mogul] Online order fulfilled: {orderId}");
+            Commit();
+            return true;
+        }
+
+        if (!string.IsNullOrEmpty(error))
+            MelonLogger.Warning($"[Mogul] Online order fulfill failed ({orderId}): {error}");
+        return false;
+    }
+
     // Anyone can press R on a register; cash goes to whoever pressed it.
     // Host is authoritative on the balance — if zero by the time the host applies, nothing pays.
     public static void RequestCollectRegister(string locationId)
@@ -338,6 +360,35 @@ public static class MogulNetwork
                     break;
                 }
 
+            case MogulActions.FireEmployee:
+                {
+                    int sep = payload.IndexOf(':');
+                    if (sep > 0 && Enum.TryParse<EmployeeRole>(payload.Substring(sep + 1), out var role))
+                    {
+                        if (role != EmployeeRole.Cashier && role != EmployeeRole.Budtender)
+                            break;
+
+                        string locId = payload.Substring(0, sep);
+                        if (!_localData.RegisteredLocationIds.Contains(locId))
+                            break;
+
+                        if (!_localData.LocationEmployees.TryGetValue(locId, out var employees))
+                            break;
+
+                        for (int i = employees.Count - 1; i >= 0; i--)
+                        {
+                            if (employees[i] == null || employees[i].Role != role) continue;
+                            employees.RemoveAt(i);
+                            changed = true;
+                            break;
+                        }
+
+                        if (employees.Count == 0)
+                            _localData.LocationEmployees.Remove(locId);
+                    }
+                    break;
+                }
+
             case MogulActions.AddVirtualInventory:
                 {
                     var parts = payload.Split(':');
@@ -366,7 +417,7 @@ public static class MogulNetwork
                         if (!_localData.RegisteredLocationIds.Contains(locId)) break;
                         if (_localData.LocationBudtenderOrders.ContainsKey(locId)) break;
                         if (!EmployeeProduction.TryGetBudtenderProduct(baseProductId, out _)) break;
-                        if (request.IngredientIds.Count > StrainMixingSystem.GetUnlockedIngredientSlots(_localData.Reach)) break;
+                        if (request.IngredientIds.Count > StrainMixingSystem.MaxIngredientSlots) break;
                         if (!_localData.LocationEmployees.TryGetValue(locId, out var employees)) break;
                         if (EmployeeProduction.CountRole(employees, EmployeeRole.Budtender) <= 0) break;
                         if (!StrainMixingSystem.TryResolveRecipeProduct(baseProductId, request.IngredientIds, out var productId, out var displayName, out var mixError))
@@ -566,11 +617,16 @@ public static class MogulNetwork
                 order.Lines ??= new System.Collections.Generic.List<OnlineOrderLineData>();
         data.LocationPriceMultipliers ??= new System.Collections.Generic.Dictionary<string, float>();
         data.LocationProductPrices ??= new System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, ProductPriceData>>();
-        foreach (var map in data.LocationProductPrices.Values)
-            if (map != null)
-                foreach (var kvp in map)
-                    if (kvp.Value != null)
-                        kvp.Value.Multiplier = PricingSystem.ClampMultiplier(kvp.Value.Multiplier);
+                foreach (var map in data.LocationProductPrices.Values)
+                    if (map != null)
+                {
+                    var keys = new System.Collections.Generic.List<string>(map.Keys);
+                    foreach (var key in keys)
+                    {
+                        map[key] ??= new ProductPriceData();
+                        map[key].Multiplier = PricingSystem.ClampMultiplier(map[key].Multiplier);
+                    }
+                }
     }
 
     private static void Commit()

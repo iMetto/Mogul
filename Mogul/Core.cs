@@ -1,5 +1,6 @@
 using System;
 using MelonLoader;
+using Mogul.Apps;
 using Mogul.Systems;
 using Mogul.UI;
 using UnityEngine.SceneManagement;
@@ -63,6 +64,7 @@ public class Core : MelonMod
         OnlineOrderSystem.Tick();
         MogulQuestSystem.Tick();
         MogulPlacementSystem.Tick();
+        MogulApp.TickOpenManagePanels();
 
         if (Input.GetKeyDown(KeyCode.F4))
         {

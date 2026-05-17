@@ -60,18 +60,19 @@ public static class MogulQuestSystem
         {
             Id = "westville_statement",
             Type = MogulObjectiveType.Quest,
-            Title = "Make Westville Listen",
-            Description = "You got three grand between cash and the app. Now put a face on the problem: find the marked loudmouth in Westville and put them down.",
-            Objective = "Drop the Westville mark",
+            Title = "Open For Business",
+            Description = "Show the operation has enough money behind it. Hit three grand between cash and the app, then claim your first property lead.",
+            Objective = "Have $3,000 total",
             Target = 1,
             ReachReward = 500,
-            Event = MogulObjectiveEvent.KnockoutNpc,
-            TargetId = "westville_mark_01",
+            Event = MogulObjectiveEvent.CashThreshold,
+            TargetId = "cash_threshold_3000",
             LocationId = "westville",
             WorldX = -167.08f,
             WorldY = -3.13f,
             WorldZ = 73.55f,
             Radius = 30f,
+            Progress = data => GetProgress(data, "cash_threshold_3000"),
             IsAvailable = data => GetProgress(data, "cash_threshold_3000") >= 1,
             OnClaim = data =>
             {
@@ -166,7 +167,16 @@ public static class MogulQuestSystem
     {
         if (!MogulNetwork.IsHost) return;
 
-        var totalMoney = Money.GetCashBalance() + Money.GetOnlineBalance();
+        float totalMoney;
+        try
+        {
+            totalMoney = Money.GetCashBalance() + Money.GetOnlineBalance();
+        }
+        catch
+        {
+            return;
+        }
+
         if (totalMoney >= 3000f && GetProgress(MogulNetwork.Data, "cash_threshold_3000") <= 0)
             MogulNetwork.RequestAction(MogulActions.RecordObjectiveEvent, "cash_threshold_3000:1");
     }

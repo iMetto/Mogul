@@ -25,6 +25,8 @@ public static class SellDesk
     }
 
     private static readonly Dictionary<string, SellDeskInstance> _spawned = new();
+    private const float StaffBehindCounterDistance = 0.9f;
+    private const float CustomerFacingStaffDistance = 1.5f;
 
     public static void Initialize()
     {
@@ -205,7 +207,10 @@ public static class SellDesk
         if (!_spawned.TryGetValue(locationId, out var inst) || inst.Counter == null) return;
         inst.Counter.transform.localPosition = localPosition;
         inst.Counter.transform.localRotation = localRotation;
-        inst.QueueAnchor = localPosition + (localRotation * Vector3.forward * 0.3f);
+        var location = PropertySystem.Find(locationId);
+        inst.QueueAnchor = location != null
+            ? ComputeCustomerAnchor(location, localPosition, localRotation)
+            : localPosition + (localRotation * Vector3.forward * 1.1f);
     }
 
     public static void ApplyPlacementOverrides(string locationId)
@@ -232,7 +237,20 @@ public static class SellDesk
             return location.SellDesk.StaffLocalPos;
 
         var (position, rotation) = ComputeDeskTransform(location);
-        return position - (rotation * Vector3.forward * 0.9f);
+        return position - (rotation * Vector3.forward * StaffBehindCounterDistance);
+    }
+
+    private static Vector3 ComputeCustomerAnchor(MogulLocation location, Vector3 deskPosition, Quaternion deskRotation)
+    {
+        var staffPos = location.SellDesk.HasStaffLocalPos
+            ? location.SellDesk.StaffLocalPos
+            : deskPosition - (deskRotation * Vector3.forward * StaffBehindCounterDistance);
+
+        var staffRot = location.SellDesk.HasStaffLocalRotation
+            ? location.SellDesk.StaffLocalRotation
+            : Quaternion.LookRotation(deskRotation * Vector3.forward, Vector3.up);
+
+        return staffPos + (staffRot * Vector3.forward * CustomerFacingStaffDistance);
     }
 
     private static void SpawnDesk(MogulLocation location, GameObject buildingRoot)
@@ -262,7 +280,7 @@ public static class SellDesk
             }
             counter.name = "Mogul_Counter_" + locId;
 
-            var queueAnchor = position + (rotation * Vector3.forward * 0.3f);
+            var queueAnchor = ComputeCustomerAnchor(location, position, rotation);
             var instance = new SellDeskInstance { Counter = counter, QueueAnchor = queueAnchor };
             _spawned[locId] = instance;
 

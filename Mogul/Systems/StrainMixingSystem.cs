@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppScheduleOne;
+using Il2CppScheduleOne.Core.Items.Framework;
 using Il2CppScheduleOne.DevUtilities;
+using Il2CppScheduleOne.Effects;
 using Il2CppScheduleOne.ItemFramework;
 using Il2CppScheduleOne.Product;
+using Il2CppScheduleOne.UI;
 using MelonLoader;
 using Mogul.Data;
 
@@ -44,9 +48,11 @@ public class BudtenderOrderRequest
 
 public static class StrainMixingSystem
 {
-    public const int MaxIngredientSlots = 4;
+    public const int MaxIngredientSlots = 8;
 
-    public static readonly BudtenderIngredient[] Ingredients =
+    private static List<BudtenderIngredient> _cachedIngredients;
+
+    private static readonly BudtenderIngredient[] FallbackIngredients =
     {
         new("cuke", "Cuke", "Refreshing", "Cuke"),
         new("energydrink", "Energy", "Energizing", "energy_drink", "energyDrink", "EnergyDrink"),
@@ -58,10 +64,80 @@ public static class StrainMixingSystem
         new("addy", "Addy", "Focused", "Addy"),
     };
 
+    public static IReadOnlyList<BudtenderIngredient> Ingredients => GetIngredients();
+
+    public static IReadOnlyList<BudtenderIngredient> GetIngredients()
+    {
+        if (_cachedIngredients != null && _cachedIngredients.Count > 0)
+            return _cachedIngredients;
+
+        var result = new List<BudtenderIngredient>(FallbackIngredients);
+        try
+        {
+            var registry = UnityEngine.Object.FindObjectOfType<Registry>();
+            var items = registry?.GetAllItems();
+            if (items != null)
+            {
+                result.Clear();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i]?.TryCast<ItemDefinition>();
+                    if (!IsValidMixerDefinition(item)) continue;
+                    if (!seen.Add(item.ID)) continue;
+                    result.Add(new BudtenderIngredient(item.ID, string.IsNullOrWhiteSpace(item.Name) ? item.ID : item.Name, "", item.ID));
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        if (result.Count == 0)
+            result.AddRange(FallbackIngredients);
+
+        result.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase));
+        _cachedIngredients = result;
+        return _cachedIngredients;
+    }
+
+    private static bool IsValidMixerDefinition(ItemDefinition item)
+    {
+        if (item == null || item.Category != EItemCategory.Ingredient || string.IsNullOrWhiteSpace(item.ID)) return false;
+        if (IsExcludedSpecialIngredient(item.ID) || IsExcludedSpecialIngredient(item.Name)) return false;
+
+        var propertyItem = item.TryCast<PropertyItemDefinition>();
+        if (propertyItem?.Properties == null || propertyItem.Properties.Count == 0) return false;
+
+        try
+        {
+            var instance = item.GetDefaultInstance(1);
+            return instance != null && new ItemFilter_MixingIngredient().DoesItemMatchFilter(instance);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static bool IsExcludedSpecialIngredient(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        string text = value.Replace("_", "").Replace("-", "").Replace(" ", "").ToLowerInvariant();
+        return text.Contains("sporesyringe")
+            || text.Contains("bikecrank")
+            || text.Contains("rdx")
+            || text.Contains("babyblue");
+    }
+
     public static int GetUnlockedIngredientSlots(int reach)
     {
-        if (reach >= 20000) return 4;
-        if (reach >= 10000) return 3;
+        if (reach >= 35000) return 8;
+        if (reach >= 25000) return 7;
+        if (reach >= 20000) return 6;
+        if (reach >= 14000) return 5;
+        if (reach >= 10000) return 4;
+        if (reach >= 6000) return 3;
         if (reach >= 3500) return 2;
         if (reach >= 750) return 1;
         return 0;
@@ -73,6 +149,21 @@ public static class StrainMixingSystem
             ? ""
             : string.Join(",", ingredientIds);
         return $"{locationId}|{baseProductId}|{ingredients}";
+    }
+
+    public static bool TryAddIngredient(List<string> ingredientIds, string ingredientId, int maxIngredients)
+    {
+        if (ingredientIds == null || string.IsNullOrWhiteSpace(ingredientId)) return false;
+        if (maxIngredients <= 0 || ingredientIds.Count >= maxIngredients) return false;
+        ingredientIds.Add(ingredientId);
+        return true;
+    }
+
+    public static bool TryRemoveIngredientAt(List<string> ingredientIds, int index)
+    {
+        if (ingredientIds == null || index < 0 || index >= ingredientIds.Count) return false;
+        ingredientIds.RemoveAt(index);
+        return true;
     }
 
     public static bool TryParseOrderPayload(string payload, out BudtenderOrderRequest request)
@@ -107,7 +198,7 @@ public static class StrainMixingSystem
     {
         ingredient = null;
         if (string.IsNullOrWhiteSpace(ingredientId)) return false;
-        foreach (var candidate in Ingredients)
+        foreach (var candidate in GetIngredients())
         {
             if (!string.Equals(candidate.IngredientId, ingredientId, StringComparison.OrdinalIgnoreCase)) continue;
             ingredient = candidate;
@@ -183,8 +274,12 @@ public static class StrainMixingSystem
             for (int i = 0; i < ingredientIds.Count; i++)
             {
                 string ingredientId = ResolveIngredientId(ingredientIds[i]);
-                string stepName = BuildStepName(current, ingredientId, i);
-                string output = manager.FinishAndNameMix(current, ingredientId, stepName);
+                string output = TryGetKnownRecipeOutput(manager, current, ingredientId);
+                if (string.IsNullOrWhiteSpace(output))
+                {
+                    string stepName = BuildStepName(current, ingredientId);
+                    output = manager.FinishAndNameMix(current, ingredientId, stepName);
+                }
                 if (string.IsNullOrWhiteSpace(output))
                 {
                     error = $"mix returned no product for {current} + {ingredientId}";
@@ -205,12 +300,53 @@ public static class StrainMixingSystem
         }
     }
 
-    private static string BuildStepName(string productId, string ingredientId, int stepIndex)
+    private static string TryGetKnownRecipeOutput(ProductManager manager, string productId, string ingredientId)
     {
-        string productName = GetProductDisplayName(productId);
-        string ingredientName = TryGetIngredient(ingredientId, out var ingredient) ? ingredient.DisplayName : ingredientId;
-        string name = $"{productName} {ingredientName}";
-        return name.Length <= 24 ? name : $"{productName} Mix {stepIndex + 1}";
+        try
+        {
+            var recipe = manager.GetRecipe(productId, ingredientId);
+            var item = recipe?.Product?.Item;
+            return item != null && !string.IsNullOrWhiteSpace(item.ID) ? item.ID : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string BuildStepName(string productId, string ingredientId)
+    {
+        try
+        {
+            var product = Registry.GetItem<ProductDefinition>(productId);
+            var mixer = Registry.GetItem<PropertyItemDefinition>(ingredientId);
+            var newProperty = mixer?.Properties != null && mixer.Properties.Count > 0 ? mixer.Properties[0] : null;
+            var outputProperties = product?.Properties != null && newProperty != null
+                ? EffectMixCalculator.MixProperties(product.Properties, newProperty, product.DrugType)
+                : product?.Properties;
+
+            var screen = NewMixScreen.Instance;
+            string generated = screen?.GenerateUniqueName(ToEffectArray(outputProperties), product?.DrugType ?? EDrugType.Marijuana);
+            if (!string.IsNullOrWhiteSpace(generated))
+                return generated;
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Warning("[Mogul] Vanilla mix name generation failed: " + ex.Message);
+        }
+
+        return BuildRecipeName(productId, new[] { ingredientId });
+    }
+
+    private static Il2CppReferenceArray<Effect> ToEffectArray(Il2CppSystem.Collections.Generic.List<Effect> properties)
+    {
+        if (properties == null || properties.Count == 0)
+            return null;
+
+        var managed = new Effect[properties.Count];
+        for (int i = 0; i < properties.Count; i++)
+            managed[i] = properties[i];
+        return new Il2CppReferenceArray<Effect>(managed);
     }
 
     private static string ResolveIngredientId(string ingredientId)
@@ -233,4 +369,3 @@ public static class StrainMixingSystem
         return ingredient.IngredientId;
     }
 }
-

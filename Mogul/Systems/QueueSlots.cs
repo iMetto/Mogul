@@ -21,8 +21,7 @@ internal readonly struct QueueSlot
 /// <summary>
 /// Builds the ordered queue slot list for a location:
 ///   Slot 0        = counter anchor (interior, local-space)
-///   Slots 1..N-1  = step toward door along interior navmesh (local-space)
-///   Slots N+      = extend 1m outside door, then along wall (world-space, world NavMesh)
+///   Slots 1..N    = exterior line outside the door (world-space, world NavMesh)
 /// </summary>
 internal static class QueueSlots
 {
@@ -36,8 +35,7 @@ internal static class QueueSlots
 
     public static void ClearCache() => _cache.Clear();
 
-    public static int Capacity(MogulLocation location) =>
-        Mathf.Max(1, location.MaxInteriorSlots + 1) + MaxExterior;
+    public static int Capacity(MogulLocation location) => 1 + MaxExterior;
 
     public static QueueSlot Get(int index, MogulLocation location, Vector3 anchor, NavigationBuilder nav)
     {
@@ -60,21 +58,6 @@ internal static class QueueSlots
         if (!nav.IsWalkable(slot0))
             slot0 = nav.NearestWalkableCell(slot0);
         results.Add(new QueueSlot(slot0, false));
-
-        var used = new HashSet<(int, int)> { GridKey(slot0, cell) };
-        var bfsOrigin = SnapToGrid(slot0, cell);
-        if (!nav.IsWalkable(bfsOrigin))
-            bfsOrigin = nav.NearestWalkableCell(bfsOrigin);
-        used.Add(GridKey(bfsOrigin, cell));
-
-        while (results.Count <= location.MaxInteriorSlots)
-        {
-            var from = results.Count == 1 ? bfsOrigin : results[results.Count - 1].Position;
-            var next = FindNextInteriorSlot(from, used, nav, cell, location);
-            if (!next.HasValue) break;
-            used.Add(GridKey(next.Value, cell));
-            results.Add(new QueueSlot(next.Value, false));
-        }
 
         // ── Exterior slots (world-space) ────────────────────────────────────
         var extSlots = BuildExterior(location);

@@ -37,7 +37,11 @@ public static class CustomerManager
         public List<Vector3> BrowseTargets;
         public List<Vector3> BrowseLookTargets;
         public int BrowseIndex;
+        public int BrowseSlot;
+        public int BrowseSpotId;
         public float BrowsePauseUntil;
+        public bool ReadyToOrder;
+        public bool BrowsingFromQueue;
         public float ServiceCompleteAt;
 
         // Health/recovery state — see Tick.
@@ -51,6 +55,19 @@ public static class CustomerManager
     }
 
     private static readonly Dictionary<NPC, CustomerEntry> _active = new();
+    private static float _nextFlowMaintenanceAt;
+
+    private readonly struct BrowseSpot
+    {
+        public readonly Vector3 Stand;
+        public readonly Vector3 Look;
+
+        public BrowseSpot(Vector3 stand, Vector3 look)
+        {
+            Stand = stand;
+            Look = look;
+        }
+    }
 
     // Locations whose queue should advance once any leaving NPC has cleared the door area.
     private static readonly HashSet<string> _pendingAdvance = new();
@@ -79,7 +96,14 @@ public static class CustomerManager
     private const float BrowsePauseMax = 6f;
     private const float ServiceDelayMin = 3f;
     private const float ServiceDelayMax = 4.5f;
-    private const int MaxBrowseTargets = 2;
+    private const float FlowMaintenanceInterval = 2f;
+    private const int MaxBrowseTargets = 1;
+    private const int RackBrowseSpotCount = 3;
+    private const int GrowTentBrowseSpotCount = 2;
+    private const int MaxSmallStoreIndoorCustomers = 1;
+    private const int MaxMediumStoreIndoorCustomers = 2;
+    private const int MaxLargeStoreIndoorCustomers = 3;
+    private const string CustomerInteractableName = "Mogul_OrderInteractable";
 
     public static void Initialize()
     {
@@ -155,6 +179,8 @@ public static class CustomerManager
                 NavBuilder = navBuilder,
                 State = CustomerState.WalkingIn,
                 QueueIndex = -1,
+                BrowseSlot = -1,
+                BrowseSpotId = -1,
                 StateEnteredAt = Time.time,
                 LastSamplePos = npc.transform.position,
                 LastSampleTime = Time.time,
@@ -162,7 +188,7 @@ public static class CustomerManager
             };
             _active[npc] = entry;
 
-            StartBrowsingOrQueue(entry, location);
+            StartBrowsingOrQueue(entry, location, promotedFromQueue: false);
         });
     }
 
@@ -198,6 +224,8 @@ public static class CustomerManager
         DrainScheduledRespawns();
         TickBrowsing();
         TickCashierService();
+        DrainPendingArrivals();
+        MaintainCustomerFlow();
 
         // Drain queued advances now that some leavers may have cleared the door.
         if (_pendingAdvance.Count > 0)
@@ -222,7 +250,7 @@ public static class CustomerManager
             bool stationary = e.State == CustomerState.WaitingInQueue
                            || e.State == CustomerState.WaitingAtCounter
                            || e.State == CustomerState.BeingServed
-                           || (e.State == CustomerState.Browsing && e.BrowsePauseUntil > 0f);
+                           || (e.State == CustomerState.Browsing && (e.BrowsePauseUntil > 0f || e.ReadyToOrder));
 
             if (!stationary && Time.time - e.LastSampleTime >= StuckSampleInterval)
             {
@@ -257,6 +285,11 @@ public static class CustomerManager
                     // give up and despawn now rather than spamming retries.
                     e.DespawnDeadline = Time.time;
                 }
+                else if (e.State == CustomerState.Browsing)
+                {
+                    MelonLogger.Warning("[Mogul] Customer browse route timed out — marking ready to order");
+                    CompleteBrowse(entry: e);
+                }
                 else if (++e.Retries > MaxStateRetries)
                 {
                     MelonLogger.Warning($"[Mogul] Customer state {e.State} exceeded retries — bailing");
@@ -276,21 +309,7 @@ public static class CustomerManager
             HandleFaultyLoss(e, alreadyDespawned: false);
         }
 
-        // Proximity arrival detection for SetDestination and callback misses.
-        foreach (var kvp in _active)
-        {
-            var e = kvp.Value;
-            if (e.PendingArrival != null)
-            {
-                if (Vector3.Distance(e.Npc.transform.position, e.PendingWorldTarget) < 1.5f)
-                {
-                    e.Npc.Movement?.Stop();
-                    var cb = e.PendingArrival;
-                    e.PendingArrival = null;
-                    cb.Invoke();
-                }
-            }
-        }
+        DrainPendingArrivals();
 
         CashRegister.Tick();
 
@@ -298,30 +317,26 @@ public static class CustomerManager
         if (CheckoutHandler.IsOpen) return;
 
         var hovered = Singleton<InteractionManager>.Instance?.HoveredInteractableObject;
-        bool eDown = Input.GetKeyDown(KeyCode.E) && !GameInput.IsTyping;
+        bool qDown = Input.GetKeyDown(KeyCode.Q) && !GameInput.IsTyping;
 
         foreach (var location in PropertySystem.Catalog)
         {
             if (!PropertySystem.IsOwned(location.Id)) continue;
-            if (!SellDesk.TryGetCounterInteractable(location.Id, out var counterInteractable)) continue;
+            if (SellDesk.TryGetCounterInteractable(location.Id, out var counterInteractable)
+                && counterInteractable._interactionState != InteractableObject.EInteractableState.Disabled)
+                counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
 
             CustomerEntry waiting = null;
             foreach (var kvp in _active)
                 if (kvp.Value.State == CustomerState.WaitingAtCounter && kvp.Value.LocationId == location.Id)
                 { waiting = kvp.Value; break; }
 
+            SetCustomerInteractables(location.Id, waiting);
             if (waiting == null)
-            {
-                if (counterInteractable._interactionState != InteractableObject.EInteractableState.Disabled)
-                    counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
                 continue;
-            }
 
-            counterInteractable.SetMessage("[E] Take order");
-            if (counterInteractable._interactionState != InteractableObject.EInteractableState.Label)
-                counterInteractable.SetInteractableState(InteractableObject.EInteractableState.Label);
-
-            if (hovered == counterInteractable && eDown)
+            var customerInteractable = GetOrCreateCustomerInteractable(waiting.Npc);
+            if (hovered == customerInteractable && qDown)
             {
                 if (LocationSpawner.TryGetSpawnedBuilding(location.Id, out var buildingRoot))
                     CheckoutHandler.Open(location.Id, waiting.Npc, buildingRoot, waiting.Order ?? []);
@@ -336,7 +351,7 @@ public static class CustomerManager
 
         if (!LocationSpawner.TryGetSpawnedBuilding(entry.LocationId, out var buildingRoot))
         {
-            StartLeaving(entry);
+            StartLeaving(entry, requestAdvance: false);
             return;
         }
 
@@ -377,43 +392,298 @@ public static class CustomerManager
         }
     }
 
-    private static void StartBrowsingOrQueue(CustomerEntry entry, MogulLocation location)
+    private static void SetCustomerInteractables(string locationId, CustomerEntry waiting)
     {
-        if (TryBuildBrowseTargets(location, entry.NavBuilder, entry.Npc.gameObject.GetInstanceID(),
-                out var browseTargets, out var lookTargets))
+        foreach (var kvp in _active)
+        {
+            var entry = kvp.Value;
+            if (entry.LocationId != locationId) continue;
+            if (entry.Npc == null || entry.Npc.gameObject == null) continue;
+            DisableVanillaCustomerInteractable(entry.Npc);
+
+            var interactable = entry == waiting
+                ? GetOrCreateCustomerInteractable(entry.Npc)
+                : TryGetCustomerInteractable(entry.Npc);
+            if (interactable == null) continue;
+
+            if (entry == waiting)
+            {
+                interactable.SetMessage("[Q] Take order");
+                if (interactable._interactionState != InteractableObject.EInteractableState.Label)
+                    interactable.SetInteractableState(InteractableObject.EInteractableState.Label);
+            }
+            else if (interactable._interactionState != InteractableObject.EInteractableState.Disabled)
+            {
+                interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+            }
+        }
+    }
+
+    private static InteractableObject GetOrCreateCustomerInteractable(NPC npc)
+    {
+        if (npc == null || npc.gameObject == null) return null;
+
+        DisableVanillaCustomerInteractable(npc);
+        var interactable = TryGetCustomerInteractable(npc);
+        if (interactable == null)
+        {
+            var obj = new GameObject(CustomerInteractableName);
+            obj.transform.SetParent(npc.transform, false);
+            obj.transform.localPosition = new Vector3(0f, 1.1f, 0f);
+            obj.layer = npc.gameObject.layer;
+            var col = obj.AddComponent<SphereCollider>();
+            col.radius = 0.65f;
+            col.isTrigger = true;
+            interactable = obj.AddComponent<InteractableObject>();
+            interactable.displayLocationCollider = col;
+            interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+        }
+
+        interactable.MaxInteractionRange = 3f;
+        if (interactable.displayLocationCollider == null)
+        {
+            var col = interactable.gameObject.GetComponent<Collider>()
+                      ?? interactable.gameObject.GetComponentInChildren<Collider>(true);
+            if (col != null) interactable.displayLocationCollider = col;
+        }
+        return interactable;
+    }
+
+    private static InteractableObject TryGetCustomerInteractable(NPC npc)
+    {
+        if (npc == null || npc.gameObject == null) return null;
+        var child = npc.transform.Find(CustomerInteractableName);
+        return child != null ? child.GetComponent<InteractableObject>() : null;
+    }
+
+    private static void DisableCustomerInteractable(NPC npc)
+    {
+        var interactable = TryGetCustomerInteractable(npc);
+        if (interactable != null
+            && interactable._interactionState != InteractableObject.EInteractableState.Disabled)
+            interactable.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+        DisableVanillaCustomerInteractable(npc);
+    }
+
+    private static void DisableVanillaCustomerInteractable(NPC npc)
+    {
+        var vanilla = npc?.intObj;
+        if (vanilla != null && vanilla._interactionState != InteractableObject.EInteractableState.Disabled)
+            vanilla.SetInteractableState(InteractableObject.EInteractableState.Disabled);
+    }
+
+    private static void DrainPendingArrivals()
+    {
+        var arrivals = new List<(CustomerEntry entry, Action callback)>();
+        foreach (var kvp in _active)
+        {
+            var e = kvp.Value;
+            if (e.Npc == null || e.Npc.gameObject == null) continue;
+            if (e.PendingArrival == null) continue;
+            if (Vector3.Distance(e.Npc.transform.position, e.PendingWorldTarget) >= 1.5f) continue;
+
+            var cb = e.PendingArrival;
+            e.PendingArrival = null;
+            arrivals.Add((e, cb));
+        }
+
+        foreach (var arrival in arrivals)
+        {
+            arrival.entry.Npc?.Movement?.Stop();
+            arrival.callback.Invoke();
+        }
+    }
+
+    private static bool HasSellableStock(string locationId)
+    {
+        if (!LocationSpawner.TryGetSpawnedBuilding(locationId, out var buildingRoot) || buildingRoot == null)
+            return false;
+
+        var stock = StorageScanner.Scan(buildingRoot);
+        for (int i = 0; i < stock.Count; i++)
+            if (stock[i] != null && stock[i].TotalPackages > 0)
+                return true;
+        return false;
+    }
+
+    private static void DismissCustomerNoStock(CustomerEntry entry, bool advance = true)
+    {
+        if (entry == null) return;
+        string locationId = entry.LocationId;
+        int oldIndex = entry.QueueIndex;
+
+        if (entry.Npc != null && entry.Npc.gameObject != null)
+        {
+            entry.Npc.DialogueHandler?.WorldspaceRend?.ShowText("Nothing here...", 2f);
+            StartLeaving(entry);
+        }
+
+        if (oldIndex > 0)
+            ReflowAfterRemoval(locationId, oldIndex);
+        if (advance)
+            AdvanceQueue(locationId);
+    }
+
+    private static void DismissPreCounterCustomersNoStock(string locationId)
+    {
+        var dismiss = new List<CustomerEntry>();
+        foreach (var kvp in _active)
+        {
+            var e = kvp.Value;
+            if (e.LocationId != locationId) continue;
+            if (e.State == CustomerState.WaitingAtCounter || e.State == CustomerState.BeingServed) continue;
+            if (e.State == CustomerState.Leaving) continue;
+            dismiss.Add(e);
+        }
+
+        foreach (var entry in dismiss)
+            DismissCustomerNoStock(entry, advance: false);
+    }
+
+    private static void StartBrowsingOrQueue(CustomerEntry entry, MogulLocation location, bool promotedFromQueue)
+    {
+        if (!HasSellableStock(location.Id))
+        {
+            DismissCustomerNoStock(entry);
+            return;
+        }
+
+        int browseSlot = FindOpenBrowseSlot(location.Id);
+        if (browseSlot >= 0
+            && CanEnterStoreForBrowse(location)
+            && TryBuildBrowseTargets(location, entry.NavBuilder, entry.Npc.gameObject.GetInstanceID(),
+                out int browseSpotId, out var browseTargets, out var lookTargets))
         {
             entry.BrowseTargets = browseTargets;
             entry.BrowseLookTargets = lookTargets;
             entry.BrowseIndex = 0;
+            entry.BrowseSlot = browseSlot;
+            entry.BrowseSpotId = browseSpotId;
             entry.BrowsePauseUntil = 0f;
-            SendToBrowseTarget(entry, 0);
-            return;
+            entry.ReadyToOrder = false;
+            entry.BrowsingFromQueue = promotedFromQueue;
+            if (TrySendToBrowseTarget(entry, 0))
+                return;
+            entry.BrowseSlot = -1;
+            entry.BrowseSpotId = -1;
         }
 
+        entry.BrowsingFromQueue = false;
         JoinQueue(entry);
+    }
+
+    private static int FindOpenBrowseSlot(string locationId)
+    {
+        for (int slot = 0; slot < MaxLargeStoreIndoorCustomers; slot++)
+        {
+            bool occupied = false;
+            foreach (var kvp in _active)
+            {
+                var e = kvp.Value;
+                if (e.LocationId != locationId) continue;
+                if (e.State == CustomerState.Leaving) continue;
+                if (e.BrowseSlot == slot)
+                {
+                    occupied = true;
+                    break;
+                }
+            }
+            if (!occupied) return slot;
+        }
+        return -1;
+    }
+
+    private static bool CanEnterStoreForBrowse(MogulLocation location)
+    {
+        if (location == null) return false;
+        return CountIndoorCustomers(location.Id) < GetMaxIndoorCustomers(location);
+    }
+
+    private static int CountIndoorCustomers(string locationId)
+    {
+        int count = 0;
+        foreach (var kvp in _active)
+        {
+            var e = kvp.Value;
+            if (e.LocationId != locationId) continue;
+            if (e.Npc == null || e.Npc.gameObject == null) continue;
+            if (e.State == CustomerState.Browsing
+                || e.State == CustomerState.WalkingIn
+                || e.State == CustomerState.WaitingAtCounter
+                || e.State == CustomerState.BeingServed)
+                count++;
+        }
+        return count;
+    }
+
+    private static int GetMaxIndoorCustomers(MogulLocation location)
+    {
+        return MaxLargeStoreIndoorCustomers;
     }
 
     private static bool TryBuildBrowseTargets(
         MogulLocation location,
         NavigationBuilder nav,
         int seed,
+        out int browseSpotId,
         out List<Vector3> standTargets,
         out List<Vector3> lookTargets)
     {
+        browseSpotId = -1;
         standTargets = new List<Vector3>();
         lookTargets = new List<Vector3>();
         if (nav == null || location == null) return false;
 
+        var spots = BuildBrowseSpots(location, nav);
+        if (spots.Count == 0) return false;
+
+        var candidates = new List<int>();
+        for (int i = 0; i < spots.Count; i++)
+        {
+            bool occupied = false;
+            foreach (var kvp in _active)
+            {
+                var e = kvp.Value;
+                if (e.LocationId != location.Id) continue;
+                if (e.State == CustomerState.Leaving) continue;
+                if (e.BrowseSpotId == i)
+                {
+                    occupied = true;
+                    break;
+                }
+            }
+            if (!occupied) candidates.Add(i);
+        }
+        if (candidates.Count == 0) return false;
+
+        int pick = Mathf.Abs(seed) % candidates.Count;
+        browseSpotId = candidates[pick];
+        var spot = spots[browseSpotId];
+        standTargets.Add(spot.Stand);
+        lookTargets.Add(spot.Look);
+        return true;
+    }
+
+    private static List<BrowseSpot> BuildBrowseSpots(MogulLocation location, NavigationBuilder nav)
+    {
+        var spots = new List<BrowseSpot>(RackBrowseSpotCount + GrowTentBrowseSpotCount);
+
         if (LocationSpawner.TryGetRackObjects(location.Id, out var racks) && racks != null)
         {
-            for (int i = 0; i < racks.Count; i++)
+            float[] lateralOffsets = { 0f, -0.85f, 0.85f, -1.7f, 1.7f };
+            for (int i = 0; i < racks.Count && spots.Count < RackBrowseSpotCount; i++)
             {
                 var rack = racks[i];
                 if (rack == null) continue;
                 var look = rack.transform.localPosition;
-                var stand = look + rack.transform.localRotation * Vector3.forward * 0.85f;
-                stand.y = 0f;
-                AddBrowseTarget(nav, stand, look, standTargets, lookTargets);
+                var forward = rack.transform.localRotation * Vector3.forward;
+                var right = rack.transform.localRotation * Vector3.right;
+                for (int offsetIndex = 0; offsetIndex < lateralOffsets.Length && spots.Count < RackBrowseSpotCount; offsetIndex++)
+                {
+                    var stand = look + forward * 1.15f + right * lateralOffsets[offsetIndex];
+                    stand.y = 0f;
+                    AddBrowseSpot(nav, stand, look, spots);
+                }
             }
         }
 
@@ -422,47 +692,61 @@ public static class CustomerManager
             var look = GetGrowTentLocalPosition(location);
             var room = BuildingPreview.GetEffectiveRoomSize(location);
             float zOffset = look.z <= room.z * 0.5f ? 1.3f : -1.3f;
-            var stand = new Vector3(
-                Mathf.Clamp(look.x, 0.5f, Mathf.Max(0.5f, room.x - 0.5f)),
-                0f,
-                Mathf.Clamp(look.z + zOffset, 0.5f, Mathf.Max(0.5f, room.z - 0.5f)));
-            AddBrowseTarget(nav, stand, look, standTargets, lookTargets);
+            float[] xOffsets = { -0.7f, 0.7f };
+            for (int i = 0; i < xOffsets.Length && CountGrowTentSpots(spots) < GrowTentBrowseSpotCount; i++)
+            {
+                var stand = new Vector3(
+                    Mathf.Clamp(look.x + xOffsets[i], 0.5f, Mathf.Max(0.5f, room.x - 0.5f)),
+                    0f,
+                    Mathf.Clamp(look.z + zOffset, 0.5f, Mathf.Max(0.5f, room.z - 0.5f)));
+                AddBrowseSpot(nav, stand, look, spots);
+            }
         }
 
-        if (standTargets.Count == 0) return false;
-        ShuffleBrowseTargets(standTargets, lookTargets, seed);
-        int keep = Mathf.Min(MaxBrowseTargets, standTargets.Count);
-        if (standTargets.Count > keep)
-        {
-            standTargets.RemoveRange(keep, standTargets.Count - keep);
-            lookTargets.RemoveRange(keep, lookTargets.Count - keep);
-        }
-        return true;
+        AddFallbackBrowseSpots(location, nav, spots);
+
+        return spots;
     }
 
-    private static void AddBrowseTarget(
+    private static void AddFallbackBrowseSpots(MogulLocation location, NavigationBuilder nav, List<BrowseSpot> spots)
+    {
+        if (spots.Count >= MaxLargeStoreIndoorCustomers) return;
+
+        var room = BuildingPreview.GetEffectiveRoomSize(location);
+        var look = new Vector3(room.x * 0.5f, 0f, room.z * 0.5f);
+        var fallback = new[]
+        {
+            new Vector3(room.x * 0.35f, 0f, room.z * 0.35f),
+            new Vector3(room.x * 0.65f, 0f, room.z * 0.35f),
+            new Vector3(room.x * 0.5f, 0f, room.z * 0.65f),
+            new Vector3(room.x * 0.35f, 0f, room.z * 0.65f),
+            new Vector3(room.x * 0.65f, 0f, room.z * 0.65f),
+        };
+
+        for (int i = 0; i < fallback.Length && spots.Count < MaxLargeStoreIndoorCustomers; i++)
+            AddBrowseSpot(nav, fallback[i], look, spots);
+    }
+
+    private static int CountGrowTentSpots(List<BrowseSpot> spots)
+    {
+        return Mathf.Max(0, spots.Count - RackBrowseSpotCount);
+    }
+
+    private static void AddBrowseSpot(
         NavigationBuilder nav,
         Vector3 stand,
         Vector3 look,
-        List<Vector3> standTargets,
-        List<Vector3> lookTargets)
+        List<BrowseSpot> spots)
     {
         if (!nav.IsWalkable(stand))
             stand = nav.NearestWalkableCell(stand);
         if (!nav.IsWalkable(stand)) return;
-        standTargets.Add(stand);
-        lookTargets.Add(look);
-    }
-
-    private static void ShuffleBrowseTargets(List<Vector3> stands, List<Vector3> looks, int seed)
-    {
-        var rng = new System.Random(seed ^ 0x5eed);
-        for (int i = stands.Count - 1; i > 0; i--)
+        for (int i = 0; i < spots.Count; i++)
         {
-            int j = rng.Next(i + 1);
-            (stands[i], stands[j]) = (stands[j], stands[i]);
-            (looks[i], looks[j]) = (looks[j], looks[i]);
+            if ((spots[i].Stand - stand).sqrMagnitude < 0.8f * 0.8f)
+                return;
         }
+        spots.Add(new BrowseSpot(stand, look));
     }
 
     private static Vector3 GetGrowTentLocalPosition(MogulLocation location)
@@ -474,24 +758,39 @@ public static class CustomerManager
 
     private static void SendToBrowseTarget(CustomerEntry entry, int index)
     {
+        if (!TrySendToBrowseTarget(entry, index))
+            JoinQueue(entry);
+    }
+
+    private static bool TrySendToBrowseTarget(CustomerEntry entry, int index)
+    {
         if (entry.BrowseTargets == null || index < 0 || index >= entry.BrowseTargets.Count)
         {
-            JoinQueue(entry);
-            return;
+            return false;
         }
 
-        entry.BrowseIndex = index;
-        entry.BrowsePauseUntil = 0f;
-        SetState(entry, CustomerState.Browsing);
-        entry.CurrentNavTarget = entry.BrowseTargets[index];
-        entry.PendingWorldTarget = entry.Npc.transform.position;
-        entry.PendingArrival = null;
-        entry.NavBuilder.SendNPCToPosition(entry.Npc, entry.BrowseTargets[index], onArrival: () => OnBrowseArrived(entry));
+        try
+        {
+            entry.BrowseIndex = index;
+            entry.BrowsePauseUntil = 0f;
+            entry.CurrentNavTarget = entry.BrowseTargets[index];
+            entry.PendingWorldTarget = entry.NavBuilder.LocalToWorld(entry.BrowseTargets[index]);
+            entry.PendingArrival = () => OnBrowseArrived(entry);
+            entry.NavBuilder.SendNPCToPosition(GetNavComponent(entry.Npc), entry.BrowseTargets[index], onArrival: () => OnBrowseArrived(entry));
+            SetState(entry, CustomerState.Browsing);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Warning($"[Mogul] Browse route failed for {entry.LocationId}: {ex.Message}");
+            return false;
+        }
     }
 
     private static void OnBrowseArrived(CustomerEntry entry)
     {
         if (entry.State != CustomerState.Browsing) return;
+        entry.PendingArrival = null;
         entry.Npc.Movement?.Stop();
         if (entry.BrowseLookTargets != null && entry.BrowseIndex < entry.BrowseLookTargets.Count
             && LocationSpawner.TryGetSpawnedBuilding(entry.LocationId, out var buildingRoot))
@@ -517,7 +816,32 @@ public static class CustomerManager
             if (entry.BrowseTargets != null && next < entry.BrowseTargets.Count)
                 SendToBrowseTarget(entry, next);
             else
-                JoinQueue(entry);
+            {
+                CompleteBrowse(entry);
+            }
+        }
+    }
+
+    private static void CompleteBrowse(CustomerEntry entry)
+    {
+        if (entry == null || entry.State != CustomerState.Browsing) return;
+        entry.PendingArrival = null;
+        entry.BrowsePauseUntil = 0f;
+        entry.ReadyToOrder = true;
+        entry.BrowsingFromQueue = false;
+        entry.Npc?.Movement?.Stop();
+        AdvanceQueue(entry.LocationId);
+    }
+
+    private static void MaintainCustomerFlow()
+    {
+        if (Time.time < _nextFlowMaintenanceAt) return;
+        _nextFlowMaintenanceAt = Time.time + FlowMaintenanceInterval;
+
+        foreach (var location in PropertySystem.Catalog)
+        {
+            if (!PropertySystem.IsOwned(location.Id)) continue;
+            AdvanceQueue(location.Id);
         }
     }
 
@@ -564,26 +888,43 @@ public static class CustomerManager
         StartLeaving(entry);
     }
 
-    private static void StartLeaving(CustomerEntry entry)
+    private static void StartLeaving(CustomerEntry entry, bool requestAdvance = true)
     {
         if (entry.Npc == null) return;
 
+        bool shouldAdvance = entry.QueueIndex == 0 || entry.BrowseSlot >= 0 || entry.QueueIndex > 0;
+        bool exteriorOnly = entry.QueueIndex > 0
+                            && (entry.State == CustomerState.JoiningQueue || entry.State == CustomerState.WaitingInQueue);
+        bool notYetInside = entry.QueueIndex < 0 && entry.BrowseSlot < 0;
         entry.PendingArrival = null;
+        DisableCustomerInteractable(entry.Npc);
+        entry.QueueIndex = -1;
+        entry.BrowseSlot = -1;
+        entry.BrowseSpotId = -1;
+        entry.ReadyToOrder = false;
         SetState(entry, CustomerState.Leaving);
         entry.DespawnDeadline = Time.time + DespawnHardCeiling;
 
-        // RecallNPC handles door-aware exit routing (S1MAPI's NavigationBuilder owns the
-        // building's interior nav graph and knows the door waypoint). We don't pass a
-        // world target ourselves — that would bypass the door and lead NPCs through walls.
-        entry.NavBuilder.RecallNPC(entry.Npc);
-
-        // Stuck-recovery target while leaving: the cached spawn anchor (outside the room).
-        // Used only by the warp fallback in Tick if the NPC fails to make progress.
         var location = PropertySystem.Find(entry.LocationId);
         if (location != null)
+        {
             entry.CurrentNavTarget = location.GetSpawnAnchor();
+            if (exteriorOnly || notYetInside)
+            {
+                entry.Npc.Movement?.SetDestination(entry.CurrentNavTarget);
+            }
+            else
+            {
+                // RecallNPC handles door-aware exit routing for customers tracked inside.
+                entry.NavBuilder.RecallNPC(GetNavComponent(entry.Npc));
+            }
+        }
+        else
+        {
+            entry.NavBuilder.RecallNPC(GetNavComponent(entry.Npc));
+        }
 
-        if (entry.QueueIndex == 0)
+        if (requestAdvance && shouldAdvance)
             RequestAdvance(entry.LocationId);
     }
 
@@ -628,7 +969,7 @@ public static class CustomerManager
             return;
         }
 
-        int queueIdx = 0;
+        int queueIdx = 1;
         foreach (var kvp in _active)
         {
             var e = kvp.Value;
@@ -645,14 +986,11 @@ public static class CustomerManager
         }
 
         entry.QueueIndex = queueIdx;
-        if (queueIdx == 0)
-        {
-            SendToCounter(entry, worldQueueAnchor);
-            return;
-        }
+        entry.BrowsingFromQueue = false;
 
         var slot = QueueSlots.Get(queueIdx, location, worldQueueAnchor, entry.NavBuilder);
         SendToQueueSlot(entry, slot, () => ArriveQueueSlot(entry));
+        AdvanceQueue(entry.LocationId);
     }
 
     private static void ArriveQueueSlot(CustomerEntry entry)
@@ -676,7 +1014,7 @@ public static class CustomerManager
         }
         else
         {
-            entry.NavBuilder.SendNPCToPosition(entry.Npc, slot.Position, onArrival);
+            entry.NavBuilder.SendNPCToPosition(GetNavComponent(entry.Npc), slot.Position, onArrival);
         }
     }
 
@@ -704,8 +1042,10 @@ public static class CustomerManager
         if (!alreadyDespawned && entry.Npc != null && entry.Npc.gameObject != null)
             CustomerSpawner.Despawn(entry.Npc);
 
-        if (oldIndex >= 0)
+        if (oldIndex > 0)
             ReflowAfterRemoval(locId, oldIndex);
+        if (oldIndex == 0 || entry.BrowseSlot >= 0)
+            AdvanceQueue(locId);
 
         if (replaceable)
             ScheduleRespawn(locId);
@@ -735,15 +1075,11 @@ public static class CustomerManager
 
         foreach (var e in toReflow)
         {
-            e.QueueIndex--;
+            e.QueueIndex = Mathf.Max(1, e.QueueIndex - 1);
             try
             {
-                if (e.QueueIndex == 0) SendToCounter(e, anchor);
-                else
-                {
-                    var slot = QueueSlots.Get(e.QueueIndex, location, anchor, e.NavBuilder);
-                    SendToQueueSlot(e, slot, () => ArriveQueueSlot(e));
-                }
+                var slot = QueueSlots.Get(e.QueueIndex, location, anchor, e.NavBuilder);
+                SendToQueueSlot(e, slot, () => ArriveQueueSlot(e));
             }
             catch (Exception ex)
             {
@@ -805,7 +1141,7 @@ public static class CustomerManager
         if (!SellDesk.TryGetQueueAnchor(entry.LocationId, out var anchor)) return;
         var location = PropertySystem.Find(entry.LocationId);
         if (location == null) return;
-        if (entry.QueueIndex <= 0)
+        if (entry.QueueIndex == 0)
             SendToCounter(entry, anchor);
         else
         {
@@ -848,16 +1184,105 @@ public static class CustomerManager
         npc.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
     }
 
+    private static Component GetNavComponent(NPC npc)
+    {
+        return npc?.Movement != null ? npc.Movement : npc;
+    }
+
     private static void SendToCounter(CustomerEntry entry, Vector3 worldQueueAnchor)
     {
-        SetState(entry, CustomerState.WalkingIn);
+        int oldQueueIndex = entry.QueueIndex;
+        bool oldReadyToOrder = entry.ReadyToOrder;
+        var oldTarget = entry.CurrentNavTarget;
+        var oldPendingTarget = entry.PendingWorldTarget;
+        var oldPendingArrival = entry.PendingArrival;
+
+        entry.QueueIndex = 0;
+        entry.ReadyToOrder = false;
         entry.CurrentNavTarget = worldQueueAnchor;
         if (LocationGeometry.TryGetCounterWorldPos(entry.LocationId, out var counterWorld))
         {
             entry.PendingWorldTarget = counterWorld;
             entry.PendingArrival = () => OnArrived(entry);
         }
-        entry.NavBuilder.SendNPCToPosition(entry.Npc, worldQueueAnchor, onArrival: () => OnArrived(entry));
+        try
+        {
+            entry.NavBuilder.SendNPCToPosition(GetNavComponent(entry.Npc), worldQueueAnchor, onArrival: () => OnArrived(entry));
+            SetState(entry, CustomerState.WalkingIn);
+        }
+        catch
+        {
+            entry.QueueIndex = oldQueueIndex;
+            entry.ReadyToOrder = oldReadyToOrder;
+            entry.CurrentNavTarget = oldTarget;
+            entry.PendingWorldTarget = oldPendingTarget;
+            entry.PendingArrival = oldPendingArrival;
+            throw;
+        }
+    }
+
+    private static bool HasCounterCustomer(string locationId)
+    {
+        foreach (var kvp in _active)
+        {
+            var e = kvp.Value;
+            if (e.LocationId != locationId) continue;
+            if ((e.State == CustomerState.WalkingIn && e.QueueIndex == 0)
+                || e.State == CustomerState.WaitingAtCounter
+                || e.State == CustomerState.BeingServed)
+                return true;
+        }
+        return false;
+    }
+
+    private static CustomerEntry FindNextReadyBrowser(string locationId)
+    {
+        CustomerEntry lowest = null;
+        foreach (var kvp in _active)
+        {
+            var e = kvp.Value;
+            if (e.LocationId != locationId) continue;
+            if (e.BrowseSlot < 0) continue;
+            if (e.State == CustomerState.Leaving) continue;
+            if (lowest == null || e.BrowseSlot < lowest.BrowseSlot)
+                lowest = e;
+        }
+
+        return lowest != null
+               && lowest.State == CustomerState.Browsing
+               && lowest.ReadyToOrder
+            ? lowest
+            : null;
+    }
+
+    private static bool TryPromoteQueuedCustomerToBrowse(CustomerEntry entry, MogulLocation location)
+    {
+        int browseSlot = FindOpenBrowseSlot(location.Id);
+        if (browseSlot < 0 || !CanEnterStoreForBrowse(location)) return false;
+        if (!TryBuildBrowseTargets(location, entry.NavBuilder, entry.Npc.gameObject.GetInstanceID(),
+                out int browseSpotId, out var browseTargets, out var lookTargets))
+            return false;
+
+        int oldIndex = entry.QueueIndex;
+        entry.QueueIndex = -1;
+        entry.BrowseTargets = browseTargets;
+        entry.BrowseLookTargets = lookTargets;
+        entry.BrowseIndex = 0;
+        entry.BrowseSlot = browseSlot;
+        entry.BrowseSpotId = browseSpotId;
+        entry.BrowsePauseUntil = 0f;
+        entry.ReadyToOrder = false;
+        entry.BrowsingFromQueue = true;
+        if (!TrySendToBrowseTarget(entry, 0))
+        {
+            entry.QueueIndex = oldIndex;
+            entry.BrowseSlot = -1;
+            entry.BrowseSpotId = -1;
+            entry.BrowsingFromQueue = false;
+            return false;
+        }
+        ReflowAfterRemoval(entry.LocationId, oldIndex);
+        return true;
     }
 
     private static void AdvanceQueue(string locationId)
@@ -865,48 +1290,45 @@ public static class CustomerManager
         if (!SellDesk.TryGetQueueAnchor(locationId, out var worldQueueAnchor)) return;
         var location = PropertySystem.Find(locationId);
         if (location == null) return;
-
-        var waiting = new List<CustomerEntry>();
-        foreach (var kvp in _active)
+        if (!HasSellableStock(locationId))
         {
-            var e = kvp.Value;
-            // Skip dead/destroyed NPCs — passing them to S1MAPI's NavigationBuilder triggers
-            // a reflection-based MemberAccessor crash that aborts the entire advance loop.
-            if (e.Npc == null || e.Npc.gameObject == null) continue;
-            if (e.LocationId == locationId
-                && (e.State == CustomerState.WaitingInQueue || e.State == CustomerState.JoiningQueue))
-                waiting.Add(e);
+            DismissPreCounterCustomersNoStock(locationId);
+            return;
         }
-        if (waiting.Count == 0) return;
 
-        foreach (var kvp in _active)
-            if (kvp.Value.LocationId == locationId
-                && (kvp.Value.State == CustomerState.WaitingAtCounter || kvp.Value.State == CustomerState.BeingServed))
-                return;
-
-        waiting.Sort((a, b) => a.QueueIndex.CompareTo(b.QueueIndex));
-
-        foreach (var e in waiting)
+        if (!HasCounterCustomer(locationId))
         {
-            e.QueueIndex--;
-            // Isolate each nav call: a single bad NPC reference should not cancel the rest
-            // of the queue's advancement. The catch lets the loop continue.
-            try
+            var nextBrowser = FindNextReadyBrowser(locationId);
+            if (nextBrowser != null)
             {
-                if (e.QueueIndex == 0)
+                try
                 {
-                    SendToCounter(e, worldQueueAnchor);
+                    SendToCounter(nextBrowser, worldQueueAnchor);
                 }
-                else
+                catch (Exception ex)
                 {
-                    var slot = QueueSlots.Get(e.QueueIndex, location, worldQueueAnchor, e.NavBuilder);
-                    SendToQueueSlot(e, slot, () => ArriveQueueSlot(e));
+                    MelonLogger.Warning($"[Mogul] AdvanceQueue: counter route failed for browser slot {nextBrowser.BrowseSlot}: {ex.Message}");
                 }
             }
-            catch (Exception ex)
+        }
+
+        while (CanEnterStoreForBrowse(location) && FindOpenBrowseSlot(locationId) >= 0)
+        {
+            var waiting = new List<CustomerEntry>();
+            foreach (var kvp in _active)
             {
-                MelonLogger.Warning($"[Mogul] AdvanceQueue: skipping customer (queueIdx now {e.QueueIndex}): {ex.Message}");
+                var e = kvp.Value;
+                if (e.Npc == null || e.Npc.gameObject == null) continue;
+                if (e.LocationId == locationId
+                    && e.QueueIndex > 0
+                    && (e.State == CustomerState.WaitingInQueue || e.State == CustomerState.JoiningQueue))
+                    waiting.Add(e);
             }
+            if (waiting.Count == 0) return;
+
+            waiting.Sort((a, b) => a.QueueIndex.CompareTo(b.QueueIndex));
+            if (!TryPromoteQueuedCustomerToBrowse(waiting[0], location))
+                return;
         }
     }
 

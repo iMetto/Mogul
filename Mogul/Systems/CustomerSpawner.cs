@@ -20,6 +20,7 @@ namespace Mogul.Systems;
 public static class CustomerSpawner
 {
     private static int _nextId = 9000;
+    private static bool _despawnWarningLogged;
 
     private static GameObject _basePrefab;
 
@@ -96,9 +97,19 @@ public static class CustomerSpawner
             if (netObj != null && InstanceFinder.ServerManager != null && netObj.IsSpawned)
                 InstanceFinder.ServerManager.Despawn(netObj);
         }
+        catch (NullReferenceException)
+        {
+            // FishNet can throw while tearing down synthetic NPC clones that are
+            // already halfway out of its object registry. Local Destroy below is
+            // still the path that matters for these managed NPCs.
+        }
         catch (Exception ex)
         {
-            MelonLogger.Warning("[Mogul] ServerManager.Despawn failed: " + ex.Message);
+            if (!_despawnWarningLogged)
+            {
+                MelonLogger.Warning("[Mogul] ServerManager.Despawn failed; falling back to Destroy: " + ex.Message);
+                _despawnWarningLogged = true;
+            }
         }
 
         try { if (go != null) UnityEngine.Object.Destroy(go); }
@@ -179,9 +190,11 @@ public static class CustomerSpawner
         if (agent != null)
         {
             agent.autoTraverseOffMeshLink = true;
-            // Lower avoidancePriority = higher priority. Vanilla NPCs default to 50;
-            // setting ours to 30 makes vanilla NPCs yield to our customers when paths cross.
-            agent.avoidancePriority = 30;
+            agent.radius = Mathf.Max(agent.radius, 0.35f);
+            agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+            // Lower avoidancePriority = higher priority. Stagger ours so customers avoid
+            // each other instead of all asserting the same path priority.
+            agent.avoidancePriority = 30 + Math.Abs(id % 20);
         }
 
         onSpawned?.Invoke(npc);
