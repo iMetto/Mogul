@@ -17,12 +17,66 @@ using AccessoryList = Il2CppSystem.Collections.Generic.List<Il2CppScheduleOne.Av
 
 namespace Mogul.Systems;
 
-public static class CustomerSpawner
+public static class NpcSpawner
 {
     private static int _nextId = 9000;
     private static bool _despawnWarningLogged;
 
     private static GameObject _basePrefab;
+
+    public static void SpawnQuestNpc(string npcId, string firstName, string lastName, Vector3 position, Action<NPC> onSpawned = null)
+    {
+        if (!MogulNetwork.IsHost)
+        {
+            MelonLogger.Warning("[Mogul] SpawnQuestNpc: host only");
+            return;
+        }
+        if (_basePrefab == null && !TryFindCivilianPrefab(out _basePrefab))
+        {
+            MelonLogger.Warning("[Mogul] SpawnQuestNpc: CivilianNPC prefab not found");
+            return;
+        }
+        try
+        {
+            if (NavMesh.SamplePosition(position, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                position = hit.position;
+
+            var clone = UnityEngine.Object.Instantiate(_basePrefab);
+            clone.name = "Mogul_QuestNpc_" + npcId;
+            clone.SetActive(false);
+
+            var npcMgr = NetworkSingleton<NPCManager>.Instance;
+            if (npcMgr?.NPCContainer != null)
+                clone.transform.SetParent(npcMgr.NPCContainer, false);
+            clone.transform.position = position;
+
+            var npc = clone.GetComponent<NPC>();
+            npc.ID        = npcId;
+            npc.FirstName = firstName;
+            npc.LastName  = lastName;
+            NPCManager.NPCRegistry?.Remove(npc);
+
+            ApplyAppearance(npc, unchecked(npcId.GetHashCode()));
+            clone.SetActive(true);
+            InstanceFinder.ServerManager.Spawn(clone);
+
+            npc.Movement?.Warp(position);
+            npc.Movement?.Stop();
+            npc.Movement?.SetAgentType(NPCMovement.EAgentType.Humanoid);
+            var agent = clone.GetComponent<NavMeshAgent>();
+            if (agent != null)
+            {
+                agent.autoTraverseOffMeshLink = true;
+                agent.radius = Mathf.Max(agent.radius, 0.35f);
+            }
+
+            onSpawned?.Invoke(npc);
+        }
+        catch (Exception ex)
+        {
+            MelonLogger.Error("[Mogul] SpawnQuestNpc failed: " + ex);
+        }
+    }
 
     public static void SpawnTestNPC(Vector3 position, Action<NPC> onSpawned = null)
     {

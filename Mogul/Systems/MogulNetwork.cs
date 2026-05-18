@@ -253,8 +253,25 @@ public static class MogulNetwork
                 }
                 break;
 
+            case MogulActions.AcceptQuest:
+                {
+                    var quest = MogulQuestSystem.Find(payload);
+                    if (quest == null) break;
+                    if (MogulQuestSystem.IsAccepted(quest, _localData)) break;
+                    if (!quest.IsAvailable(_localData)) break;
+                    _localData.AcceptedQuestIds.Add(payload);
+                    changed = true;
+                    break;
+                }
+
             case MogulActions.SetActiveQuest:
-                if (MogulQuestSystem.Find(payload) != null)
+                if (string.IsNullOrEmpty(payload))
+                {
+                    _localData.ActiveQuestId = null;
+                    _localData.ActiveQuestProgress = 0;
+                    changed = true;
+                }
+                else if (MogulQuestSystem.Find(payload) != null)
                 {
                     _localData.ActiveQuestId = payload;
                     _localData.ActiveQuestProgress = 0;
@@ -602,6 +619,7 @@ public static class MogulNetwork
     {
         data.RegisteredLocationIds ??= new System.Collections.Generic.List<string>();
         data.LocationDesigns ??= new System.Collections.Generic.Dictionary<string, string>();
+        data.AcceptedQuestIds  ??= new System.Collections.Generic.List<string>();
         data.CompletedQuestIds ??= new System.Collections.Generic.List<string>();
         data.ObjectiveProgress ??= new System.Collections.Generic.Dictionary<string, int>();
         data.UnlockedFeatureIds ??= new System.Collections.Generic.List<string>();

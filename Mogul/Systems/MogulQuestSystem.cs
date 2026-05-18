@@ -22,6 +22,7 @@ public enum MogulObjectiveEvent
     SellPawnItem,
     DumpBody,
     HandOutDrug,
+    DropOffDrug,
 }
 
 public class MogulQuestDefinition
@@ -58,6 +59,23 @@ public static class MogulQuestSystem
     {
         new()
         {
+            Id          = "loose_end_01",
+            Type        = MogulObjectiveType.Quest,
+            Title       = "Loose End",
+            Description = "A runner has been talking sideways about the operation. Find them at the marked spot and make sure that conversation stops.",
+            Objective   = "Take out the mark",
+            Target      = 1,
+            ReachReward = 300,
+            Event       = MogulObjectiveEvent.KnockoutNpc,
+            TargetId    = "loose_end_mark_01",
+            WorldX      = -148f,
+            WorldY      = -3.13f,
+            WorldZ      = 68f,
+            Radius      = 15f,
+            IsAvailable = _ => true,
+        },
+        new()
+        {
             Id = "westville_statement",
             Type = MogulObjectiveType.Quest,
             Title = "Open For Business",
@@ -79,6 +97,24 @@ public static class MogulQuestSystem
                 Unlock(data, UnlockPropertiesTab);
                 Unlock(data, UnlockWestvillePurchase);
             },
+        },
+        new()
+        {
+            Id          = "shipment_westville_01",
+            Type        = MogulObjectiveType.Quest,
+            Title       = "Dead Drop",
+            Description = "A contact has a storage unit near the property. Get forty packs of OG Kush inside it. No names, no trail.",
+            Objective   = "Drop 40 OG Kush at the storage unit",
+            Target      = 40,
+            ReachReward = 1200,
+            Event       = MogulObjectiveEvent.DropOffDrug,
+            TargetId    = EmployeeProduction.TestBudtenderProductId,
+            WorldX      = -158f,
+            WorldY      = -3.13f,
+            WorldZ      = 85f,
+            Radius      = 5f,
+            IsAvailable = data => HasClaimed(data, "westville_statement"),
+            OnClaim     = _ => MogulDropZoneSpawner.OnQuestClaimed("shipment_westville_01"),
         },
         new()
         {
@@ -179,6 +215,9 @@ public static class MogulQuestSystem
 
         if (totalMoney >= 3000f && GetProgress(MogulNetwork.Data, "cash_threshold_3000") <= 0)
             MogulNetwork.RequestAction(MogulActions.RecordObjectiveEvent, "cash_threshold_3000:1");
+
+        MogulQuestNpcSpawner.Tick();
+        MogulDropZoneSpawner.Tick();
     }
 
     public static MogulQuestDefinition Find(string id)
@@ -210,6 +249,9 @@ public static class MogulQuestSystem
     public static bool IsComplete(MogulQuestDefinition quest, MogulSaveData data) =>
         quest != null && GetProgress(quest, data) >= quest.Target;
 
+    public static bool IsAccepted(MogulQuestDefinition quest, MogulSaveData data) =>
+        quest != null && data?.AcceptedQuestIds != null && data.AcceptedQuestIds.Contains(quest.Id);
+
     public static bool IsClaimed(MogulQuestDefinition quest, MogulSaveData data) =>
         quest != null && HasClaimed(data, quest.Id);
 
@@ -222,11 +264,20 @@ public static class MogulQuestSystem
     public static bool IsUnlocked(MogulSaveData data, string flag) =>
         !string.IsNullOrEmpty(flag) && data?.UnlockedFeatureIds != null && data.UnlockedFeatureIds.Contains(flag);
 
+    public static void RequestAccept(string questId)
+    {
+        if (string.IsNullOrEmpty(questId)) return;
+        MogulNetwork.RequestAction(MogulActions.AcceptQuest, questId);
+    }
+
     public static void RequestTrack(string questId)
     {
         if (string.IsNullOrEmpty(questId)) return;
         MogulNetwork.RequestAction(MogulActions.SetActiveQuest, questId);
     }
+
+    public static void RequestUntrack() =>
+        MogulNetwork.RequestAction(MogulActions.SetActiveQuest, string.Empty);
 
     public static void RequestClaim(string questId)
     {

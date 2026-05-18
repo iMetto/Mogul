@@ -119,7 +119,7 @@ public static class CustomerManager
         {
             if (kvp.Value.LocationId != locationId) continue;
             if (kvp.Key != null && kvp.Key.gameObject != null)
-                CustomerSpawner.Despawn(kvp.Key);
+                NpcSpawner.Despawn(kvp.Key);
             toRemove.Add(kvp.Key);
         }
         foreach (var k in toRemove) _active.Remove(k);
@@ -168,7 +168,7 @@ public static class CustomerManager
         }
 
         var spawnPos = location.GetSpawnAnchor();
-        CustomerSpawner.SpawnTestNPC(spawnPos, npc =>
+        NpcSpawner.SpawnTestNPC(spawnPos, npc =>
         {
             var customerComp = npc.gameObject.GetComponent<Customer>();
             var entry = new CustomerEntry
@@ -214,7 +214,7 @@ public static class CustomerManager
             bool ceiling = Time.time >= e.DespawnDeadline;
             if (farFromPlayer || ceiling)
             {
-                CustomerSpawner.Despawn(e.Npc);
+                NpcSpawner.Despawn(e.Npc);
                 toRemove.Add(kvp.Key);
             }
         }
@@ -1040,7 +1040,7 @@ public static class CustomerManager
                         || entry.State == CustomerState.WaitingInQueue;
 
         if (!alreadyDespawned && entry.Npc != null && entry.Npc.gameObject != null)
-            CustomerSpawner.Despawn(entry.Npc);
+            NpcSpawner.Despawn(entry.Npc);
 
         if (oldIndex > 0)
             ReflowAfterRemoval(locId, oldIndex);

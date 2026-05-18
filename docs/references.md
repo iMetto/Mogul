@@ -33,6 +33,9 @@ internals, and manual testing.
 - `docs/research/map_pins.md` - Mogul/OTC map POI pin implementation notes.
 - `docs/research/quest_task_hooks.md` - new quest/task backend, unlock flags, and
   NPC/sale/body hook leads.
+- `docs/research/dropoff_quests.md` - drop-off quest tech: dumpster spawning (PrefabRef),
+  why vanilla storage does not apply, player inventory removal API, MogulDropZoneSpawner
+  design, and key gotchas.
 - `docs/research/strain_mixing.md` - vanilla ProductManager mixing/product
   creation APIs and Mogul budtender strain-builder plan.
 - `docs/research/otc_customer_research.md` - OTC customer/product-selection model.

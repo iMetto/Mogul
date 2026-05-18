@@ -60,7 +60,7 @@ public static class LocationGeometry
     }
 
     // Spawn anchor for new customers: a fixed offset outside the door, on the building's
-    // door-facing wall. Used by CustomerSpawner — keep distinct from QueueSlots' interior
+    // door-facing wall. Used by NpcSpawner — keep distinct from QueueSlots' interior
     // exit point (which uses a smaller 1.5m offset for the queue line start).
     public static Vector3 ComputeDoorExterior(this MogulLocation location)
     {

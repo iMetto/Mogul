@@ -9,6 +9,7 @@ public class MogulSaveData
     public Dictionary<string, string> LocationDesigns { get; set; } = new Dictionary<string, string>();
     public string ActiveQuestId { get; set; } = null;
     public int ActiveQuestProgress { get; set; } = 0;
+    public List<string> AcceptedQuestIds { get; set; } = new List<string>();
     public List<string> CompletedQuestIds { get; set; } = new List<string>();
     public Dictionary<string, int> ObjectiveProgress { get; set; } = new Dictionary<string, int>();
     public List<string> UnlockedFeatureIds { get; set; } = new List<string>();

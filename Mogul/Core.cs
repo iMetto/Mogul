@@ -35,6 +35,8 @@ public class Core : MelonMod
         {
             MogulPersistence.ResetData();
             MogulNetwork.InitializeSteam();
+            MogulQuestNpcSpawner.DespawnAll();
+            MogulDropZoneSpawner.DespawnAll();
         }
         if (sceneName == "Main")
         {

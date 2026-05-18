@@ -12,6 +12,7 @@ public static class MogulActions
     public const string AddReach = "add_reach";
     public const string SetLocationDesign = "set_location_design";
     public const string PurchaseWithDesign = "purchase_with_design";
+    public const string AcceptQuest    = "accept_quest";
     public const string SetActiveQuest = "set_quest";
     public const string AdvanceQuest = "advance_quest";
     public const string CompleteQuest = "complete_quest";

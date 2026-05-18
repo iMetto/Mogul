@@ -43,7 +43,7 @@ public static class EmployeeSystem
     {
         foreach (var entry in _spawned.Values)
             if (entry.Npc != null)
-                CustomerSpawner.Despawn(entry.Npc);
+                NpcSpawner.Despawn(entry.Npc);
         _spawned.Clear();
         ClearGrowTents();
     }
@@ -55,7 +55,7 @@ public static class EmployeeSystem
         {
             if (kvp.Value.LocationId != locationId) continue;
             if (kvp.Value.Npc != null)
-                CustomerSpawner.Despawn(kvp.Value.Npc);
+                NpcSpawner.Despawn(kvp.Value.Npc);
             toRemove.Add(kvp.Key);
         }
         foreach (var id in toRemove)
@@ -371,7 +371,7 @@ public static class EmployeeSystem
 
             var localPos = GetWorkerLocalPosition(locationId, location, employee.Role, i);
             var spawnPos = location.GetSpawnAnchor();
-            CustomerSpawner.SpawnWorkerNPC(spawnPos, employee.Role, employee.DisplayName, npc =>
+            NpcSpawner.SpawnWorkerNPC(spawnPos, employee.Role, employee.DisplayName, npc =>
             {
                 DisableOutdoorWeather(npc);
                 _spawned[employee.Id] = new WorkerEntry
@@ -413,7 +413,7 @@ public static class EmployeeSystem
             if (kvp.Value.LocationId != locationId) continue;
             if (savedIds.Contains(kvp.Key)) continue;
             if (kvp.Value.Npc != null)
-                CustomerSpawner.Despawn(kvp.Value.Npc);
+                NpcSpawner.Despawn(kvp.Value.Npc);
             toRemove.Add(kvp.Key);
         }
         foreach (var id in toRemove)

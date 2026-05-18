@@ -36,5 +36,9 @@ promote confirmed facts into the matching file in this folder.
 - `placement_research.md` - storage rack, grow tent, vanilla buildable, and OTC
   custom-grid placement research.
 - `quests.md` - Mogul quest layer and S1API/vanilla quest integration notes.
+- `quest_task_hooks.md` - quest/task event backend, unlock flags, NPC/sale/body hook leads.
+- `dropoff_quests.md` - drop-off quest tech: dumpster spawning via PrefabRef,
+  why vanilla storage doesn't apply, player inventory removal, MogulDropZoneSpawner
+  design, and gotchas (grid init, server-only spawn, no persistence).
 - `rebuild_lifecycle.md` - customization rebuild, rack preservation, employee
   respawn, cashier anchor math, grow tent respawn, and storage-removal guard.
